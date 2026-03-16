@@ -134,6 +134,10 @@ select {
   background: linear-gradient(135deg, rgba(37, 16, 66, 0.88), rgba(75, 32, 116, 0.72));
 }
 
+.websocket-panel {
+  background: linear-gradient(135deg, rgba(8, 54, 46, 0.88), rgba(22, 102, 79, 0.72));
+}
+
 .panel-header {
   display: flex;
   align-items: center;
@@ -165,6 +169,28 @@ select {
 .badge.running {
   background: rgba(252, 191, 73, 0.18);
   color: #ffd166;
+}
+
+.badge.connecting,
+.badge.reconnecting {
+  background: rgba(252, 191, 73, 0.18);
+  color: #ffd166;
+}
+
+.badge.open {
+  background: rgba(76, 201, 240, 0.16);
+  color: #90f1ef;
+}
+
+.badge.closed,
+.badge.closing {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8edeb;
+}
+
+.badge.error {
+  background: rgba(255, 89, 94, 0.16);
+  color: #ffb5a7;
 }
 
 .badge.idle {
@@ -226,6 +252,10 @@ select {
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.24);
   color: inherit;
+}
+
+.textarea {
+  resize: vertical;
 }
 
 .actions {

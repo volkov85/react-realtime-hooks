@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import {
   useHeartbeat,
   useOnlineStatus,
-  useReconnect
+  useReconnect,
+  useWebSocket
 } from "../../src";
 import type { UseHeartbeatOptions } from "../../src";
 
@@ -26,6 +27,14 @@ export const App = () => {
   const [startHeartbeatOnMount, setStartHeartbeatOnMount] = useState(true);
   const [heartbeatIntervalMs, setHeartbeatIntervalMs] = useState("1500");
   const [heartbeatTimeoutMs, setHeartbeatTimeoutMs] = useState("900");
+
+  const [webSocketUrl, setWebSocketUrl] = useState("ws://localhost:8080");
+  const [webSocketAutoConnect, setWebSocketAutoConnect] = useState(false);
+  const [webSocketReconnectEnabled, setWebSocketReconnectEnabled] = useState(true);
+  const [webSocketHeartbeatEnabled, setWebSocketHeartbeatEnabled] = useState(false);
+  const [webSocketHeartbeatIntervalMs, setWebSocketHeartbeatIntervalMs] = useState("5000");
+  const [webSocketHeartbeatTimeoutMs, setWebSocketHeartbeatTimeoutMs] = useState("2000");
+  const [webSocketMessage, setWebSocketMessage] = useState("hello from demo");
 
   const onlineStatus = useOnlineStatus({
     initialOnline,
@@ -55,9 +64,44 @@ export const App = () => {
 
   const heartbeat = useHeartbeat<string, string>(heartbeatOptions);
 
+  const webSocketHeartbeatOptions: false | UseHeartbeatOptions<string, string> =
+    webSocketHeartbeatEnabled
+      ? {
+          intervalMs: Number(webSocketHeartbeatIntervalMs) || 0,
+          matchesAck: (message) => message.toLowerCase() === "pong",
+          message: "ping",
+          startOnMount: false
+        }
+      : false;
+
+  const parsedWebSocketHeartbeatTimeoutMs = Number(webSocketHeartbeatTimeoutMs);
+
+  if (
+    webSocketHeartbeatOptions !== false &&
+    Number.isFinite(parsedWebSocketHeartbeatTimeoutMs) &&
+    parsedWebSocketHeartbeatTimeoutMs > 0
+  ) {
+    webSocketHeartbeatOptions.timeoutMs = parsedWebSocketHeartbeatTimeoutMs;
+  }
+
+  const webSocket = useWebSocket<string, string>({
+    connect: webSocketAutoConnect,
+    heartbeat: webSocketHeartbeatOptions,
+    reconnect: webSocketReconnectEnabled
+      ? {
+          initialDelayMs: 1_000,
+          jitterRatio: 0,
+          maxAttempts: 5
+        }
+      : false,
+    shouldReconnect: (event) => !(event instanceof CloseEvent) || event.code !== 1_000,
+    url: webSocketUrl.trim().length === 0 ? () => null : webSocketUrl.trim()
+  });
+
   const [onlineEvents, setOnlineEvents] = useState<string[]>([]);
   const [reconnectEvents, setReconnectEvents] = useState<string[]>([]);
   const [heartbeatEvents, setHeartbeatEvents] = useState<string[]>([]);
+  const [webSocketEvents, setWebSocketEvents] = useState<string[]>([]);
 
   useEffect(() => {
     const entry = createLogEntry(
@@ -86,6 +130,37 @@ export const App = () => {
     setHeartbeatEvents((current) => [entry, ...current].slice(0, 8));
   }, [heartbeat.hasTimedOut, heartbeat.isRunning, heartbeat.latencyMs]);
 
+  useEffect(() => {
+    const details = [
+      `message: ${webSocket.lastMessage ?? "none"}`,
+      `close: ${webSocket.lastCloseEvent?.code ?? "none"}`,
+      `reconnect attempt: ${webSocket.reconnectState?.attempt ?? "none"}`,
+      `timed out: ${webSocket.heartbeatState?.hasTimedOut ?? false}`
+    ].join(", ");
+
+    const entry = createLogEntry(webSocket.status, details);
+    setWebSocketEvents((current) => [entry, ...current].slice(0, 8));
+  }, [
+    webSocket.heartbeatState?.hasTimedOut,
+    webSocket.lastCloseEvent?.code,
+    webSocket.lastMessage,
+    webSocket.reconnectState?.attempt,
+    webSocket.status
+  ]);
+
+  const webSocketSnapshot = {
+    ...webSocket,
+    socket:
+      webSocket.socket === null
+        ? null
+        : {
+            binaryType: webSocket.socket.binaryType,
+            bufferedAmount: webSocket.socket.bufferedAmount,
+            readyState: webSocket.socket.readyState,
+            url: webSocket.socket.url
+          }
+  };
+
   return (
     <main className="shell">
       <section className="hero">
@@ -93,8 +168,8 @@ export const App = () => {
         <h1>Realtime hooks playground</h1>
         <p className="lede">
           The demo is split into dedicated blocks, one block per hook. You can
-          test browser online state, reconnect scheduling, and heartbeat/ack
-          flow independently.
+          test browser online state, reconnect scheduling, heartbeat/ack flow,
+          and a live WebSocket transport independently.
         </p>
       </section>
 
@@ -467,6 +542,190 @@ export const App = () => {
             <h3>Event log</h3>
             <ul className="log">
               {heartbeatEvents.map((entry) => (
+                <li key={entry}>{entry}</li>
+              ))}
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section className="hook-section">
+        <div className="section-heading">
+          <p className="section-kicker">Hook block</p>
+          <h2>useWebSocket</h2>
+          <p>
+            Point this block at your own WebSocket endpoint, then manually
+            open, send, close, and reconnect while watching transport,
+            reconnect, and heartbeat state in one place.
+          </p>
+        </div>
+
+        <div className="grid">
+          <article className="panel panel-status websocket-panel">
+            <div className="panel-header">
+              <span className={`badge ${webSocket.status}`}>
+                {webSocket.status}
+              </span>
+              <span className="support">
+                buffered {webSocket.bufferedAmount} | connected{" "}
+                {webSocket.isConnected ? "yes" : "no"}
+              </span>
+            </div>
+
+            <dl className="stats reconnect-stats">
+              <div>
+                <dt>Last changed</dt>
+                <dd>{formatTimestamp(webSocket.lastChangedAt)}</dd>
+              </div>
+              <div>
+                <dt>Last message</dt>
+                <dd>{webSocket.lastMessage ?? "none"}</dd>
+              </div>
+              <div>
+                <dt>Close code</dt>
+                <dd>{webSocket.lastCloseEvent?.code ?? "none"}</dd>
+              </div>
+            </dl>
+          </article>
+
+          <article className="panel">
+            <h3>Controls</h3>
+            <label className="field">
+              <span>Endpoint URL</span>
+              <input
+                className="input"
+                onChange={(event) => {
+                  setWebSocketUrl(event.target.value);
+                }}
+                placeholder="ws://localhost:8080"
+                value={webSocketUrl}
+              />
+            </label>
+
+            <label className="toggle">
+              <input
+                checked={webSocketAutoConnect}
+                onChange={(event) => {
+                  setWebSocketAutoConnect(event.target.checked);
+                }}
+                type="checkbox"
+              />
+              <span>Connect automatically</span>
+            </label>
+
+            <label className="toggle">
+              <input
+                checked={webSocketReconnectEnabled}
+                onChange={(event) => {
+                  setWebSocketReconnectEnabled(event.target.checked);
+                }}
+                type="checkbox"
+              />
+              <span>Enable reconnect</span>
+            </label>
+
+            <label className="toggle">
+              <input
+                checked={webSocketHeartbeatEnabled}
+                onChange={(event) => {
+                  setWebSocketHeartbeatEnabled(event.target.checked);
+                }}
+                type="checkbox"
+              />
+              <span>Enable heartbeat ping/pong</span>
+            </label>
+
+            <label className="field">
+              <span>Heartbeat interval (ms)</span>
+              <input
+                className="input"
+                inputMode="numeric"
+                onChange={(event) => {
+                  setWebSocketHeartbeatIntervalMs(event.target.value);
+                }}
+                value={webSocketHeartbeatIntervalMs}
+              />
+            </label>
+
+            <label className="field">
+              <span>Heartbeat timeout (ms)</span>
+              <input
+                className="input"
+                inputMode="numeric"
+                onChange={(event) => {
+                  setWebSocketHeartbeatTimeoutMs(event.target.value);
+                }}
+                value={webSocketHeartbeatTimeoutMs}
+              />
+            </label>
+
+            <label className="field">
+              <span>Outgoing message</span>
+              <textarea
+                className="input textarea"
+                onChange={(event) => {
+                  setWebSocketMessage(event.target.value);
+                }}
+                rows={4}
+                value={webSocketMessage}
+              />
+            </label>
+
+            <div className="actions">
+              <button
+                className="button"
+                onClick={() => {
+                  webSocket.open();
+                }}
+                type="button"
+              >
+                Open
+              </button>
+              <button
+                className="button button-ghost"
+                onClick={() => {
+                  webSocket.send(webSocketMessage);
+                }}
+                type="button"
+              >
+                Send
+              </button>
+              <button
+                className="button button-ghost"
+                onClick={() => {
+                  webSocket.reconnect();
+                }}
+                type="button"
+              >
+                Reconnect
+              </button>
+              <button
+                className="button button-success"
+                onClick={() => {
+                  webSocket.close(1_000, "demo-close");
+                }}
+                type="button"
+              >
+                Close
+              </button>
+            </div>
+
+            <p className="hint">
+              Use a local or remote echo-capable endpoint. If heartbeat is
+              enabled, the hook sends <code>ping</code> and expects{" "}
+              <code>pong</code>.
+            </p>
+          </article>
+
+          <article className="panel">
+            <h3>Snapshot</h3>
+            <pre className="code">{JSON.stringify(webSocketSnapshot, null, 2)}</pre>
+          </article>
+
+          <article className="panel panel-log">
+            <h3>Event log</h3>
+            <ul className="log">
+              {webSocketEvents.map((entry) => (
                 <li key={entry}>{entry}</li>
               ))}
             </ul>
