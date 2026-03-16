@@ -1,6 +1,6 @@
 {
   "name": "react-realtime-hooks",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React hooks for WebSocket, EventSource, reconnect, heartbeat, and online status.",
   "license": "MIT",
   "repository": {
