@@ -1,0 +1,81 @@
+{
+  "name": "react-realtime-hooks",
+  "version": "0.1.0",
+  "description": "React hooks for WebSocket, EventSource, reconnect, heartbeat, and online status.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/volkov85/react-realtime-hooks.git"
+  },
+  "homepage": "https://github.com/volkov85/react-realtime-hooks#readme",
+  "bugs": {
+    "url": "https://github.com/volkov85/react-realtime-hooks/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "keywords": [
+    "react",
+    "hooks",
+    "websocket",
+    "eventsource",
+    "sse",
+    "reconnect",
+    "heartbeat",
+    "network"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "publint": "publint",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build && npm run publint"
+  },
+  "peerDependencies": {
+    "react": "^18.3.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@changesets/cli": "2.30.0",
+    "@eslint/js": "10.0.1",
+    "@testing-library/react": "16.3.2",
+    "@types/node": "25.5.0",
+    "@types/react": "19.2.14",
+    "eslint": "10.0.3",
+    "globals": "17.4.0",
+    "jsdom": "29.0.0",
+    "publint": "0.3.18",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.57.0",
+    "vitest": "4.1.0"
+  }
+}
