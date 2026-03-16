@@ -37,6 +37,35 @@ select {
   margin-bottom: 28px;
 }
 
+.hook-section {
+  margin-top: 40px;
+}
+
+.section-heading {
+  margin-bottom: 18px;
+}
+
+.section-heading h2 {
+  margin: 0 0 10px;
+  font-size: clamp(1.6rem, 3vw, 2.3rem);
+}
+
+.section-heading p {
+  width: min(760px, 100%);
+  margin: 0;
+  color: rgba(247, 244, 234, 0.75);
+  line-height: 1.6;
+}
+
+.section-kicker {
+  margin: 0 0 8px;
+  color: #ffd166;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
 .eyebrow {
   margin: 0 0 12px;
   color: #fcbf49;
@@ -82,6 +111,13 @@ select {
   text-transform: uppercase;
 }
 
+.panel h3 {
+  margin: 0 0 16px;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .panel-status {
   grid-column: span 8;
 }
@@ -92,6 +128,10 @@ select {
 
 .reconnect-panel {
   background: linear-gradient(135deg, rgba(10, 25, 47, 0.88), rgba(30, 58, 95, 0.75));
+}
+
+.heartbeat-panel {
+  background: linear-gradient(135deg, rgba(37, 16, 66, 0.88), rgba(75, 32, 116, 0.72));
 }
 
 .panel-header {
