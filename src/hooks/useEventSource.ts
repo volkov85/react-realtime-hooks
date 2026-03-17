@@ -66,7 +66,9 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const eventSourceKeyRef = useRef<string | null>(null);
+  const manualCloseRef = useRef(false);
   const manualOpenRef = useRef(false);
+  const skipErrorReconnectRef = useRef(false);
   const suppressReconnectRef = useRef(false);
   const [openNonce, setOpenNonce] = useState(0);
   const [state, setState] = useState<EventSourceState<TMessage>>(() =>
@@ -114,6 +116,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
   });
 
   const handleOpen = useEffectEvent((event: Event, source: EventSource) => {
+    manualCloseRef.current = false;
     suppressReconnectRef.current = false;
     reconnect.markConnected();
 
@@ -156,8 +159,11 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
   );
 
   const handleError = useEffectEvent((event: Event, source: EventSource) => {
+    const skipErrorReconnect = skipErrorReconnectRef.current;
+    skipErrorReconnectRef.current = false;
     const shouldReconnect =
       !suppressReconnectRef.current &&
+      !skipErrorReconnect &&
       reconnectEnabled &&
       (options.shouldReconnect?.(event) ?? true);
 
@@ -191,6 +197,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
   });
 
   const open = (): void => {
+    manualCloseRef.current = false;
     manualOpenRef.current = true;
     suppressReconnectRef.current = false;
     reconnect.cancel();
@@ -198,13 +205,17 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
   };
 
   const reconnectNow = (): void => {
+    manualCloseRef.current = false;
     manualOpenRef.current = true;
-    suppressReconnectRef.current = false;
+    skipErrorReconnectRef.current = true;
+    suppressReconnectRef.current = true;
     closeEventSource();
+    suppressReconnectRef.current = false;
     reconnect.schedule("manual");
   };
 
   const close = (): void => {
+    manualCloseRef.current = true;
     manualOpenRef.current = false;
     suppressReconnectRef.current = true;
     reconnect.cancel();
@@ -238,7 +249,9 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     }
 
     const shouldConnect =
-      connect || manualOpenRef.current || reconnect.status === "running";
+      (connect && !manualCloseRef.current) ||
+      manualOpenRef.current ||
+      reconnect.status === "running";
     const nextEventSourceKey = [
       resolvedUrl,
       options.withCredentials ? "credentials" : "anonymous",
@@ -254,7 +267,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
       eventSourceKeyRef.current = null;
       commitState((current) => ({
         ...current,
-        status: "idle"
+        status: manualCloseRef.current ? "closed" : "idle"
       }));
       return;
     }
@@ -287,23 +300,44 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
           : "connecting"
     }));
 
-    source.addEventListener("open", (event) => {
+    const handleSourceOpen = (event: Event): void => {
       handleOpen(event, source);
-    });
-
-    source.addEventListener("message", (event) => {
+    };
+    const handleSourceMessage = (event: Event): void => {
       commitParsedMessage("message", event as MessageEvent<string>, false);
-    });
+    };
+    const namedEventHandlers = new Map<
+      string,
+      (event: Event) => void
+    >();
+    const handleSourceError = (event: Event): void => {
+      handleError(event, source);
+    };
+
+    source.addEventListener("open", handleSourceOpen);
+    source.addEventListener("message", handleSourceMessage);
 
     for (const eventName of namedEvents) {
-      source.addEventListener(eventName, (event) => {
+      const handler = (event: Event): void => {
         commitParsedMessage(eventName, event as MessageEvent<string>, true);
-      });
+      };
+
+      namedEventHandlers.set(eventName, handler);
+      source.addEventListener(eventName, handler);
     }
 
-    source.addEventListener("error", (event) => {
-      handleError(event, source);
-    });
+    source.addEventListener("error", handleSourceError);
+
+    return () => {
+      source.removeEventListener("open", handleSourceOpen);
+      source.removeEventListener("message", handleSourceMessage);
+
+      for (const [eventName, handler] of namedEventHandlers) {
+        source.removeEventListener(eventName, handler);
+      }
+
+      source.removeEventListener("error", handleSourceError);
+    };
   }, [
     connect,
     eventsDependency,
