@@ -24,10 +24,8 @@ export interface UseEventSourceOptions<TMessage = unknown> {
   ) => void;
 }
 
-export interface UseEventSourceResult<TMessage = unknown>
-  extends ConnectionStateSnapshot {
+type UseEventSourceResultBase<TMessage> = {
   transport: Extract<RealtimeTransport, "eventsource">;
-  eventSource: EventSource | null;
   lastEventName: string | null;
   lastMessage: TMessage | null;
   lastMessageEvent: MessageEvent<string> | null;
@@ -39,7 +37,25 @@ export interface UseEventSourceResult<TMessage = unknown>
   open: () => void;
   close: () => void;
   reconnect: () => void;
-}
+};
+
+export type UseEventSourceResult<TMessage = unknown> =
+  | (UseEventSourceResultBase<TMessage> &
+      Extract<ConnectionStateSnapshot, { status: "open" }> & {
+        eventSource: EventSource;
+      })
+  | (UseEventSourceResultBase<TMessage> &
+      Extract<ConnectionStateSnapshot, { status: "connecting" | "reconnecting" }> & {
+        eventSource: EventSource | null;
+      })
+  | (UseEventSourceResultBase<TMessage> &
+      Extract<ConnectionStateSnapshot, { status: "closing" }> & {
+        eventSource: EventSource | null;
+      })
+  | (UseEventSourceResultBase<TMessage> &
+      Extract<ConnectionStateSnapshot, { status: "idle" | "closed" | "error" }> & {
+        eventSource: EventSource | null;
+      });
 
 export type UseEventSourceHook = <TMessage = unknown>(
   options: UseEventSourceOptions<TMessage>

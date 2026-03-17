@@ -27,10 +27,8 @@ export interface UseWebSocketOptions<TIncoming = unknown, TOutgoing = TIncoming>
   onClose?: (event: CloseEvent) => void;
 }
 
-export interface UseWebSocketResult<TIncoming = unknown, TOutgoing = TIncoming>
-  extends ConnectionStateSnapshot {
+type UseWebSocketResultBase<TIncoming, TOutgoing> = {
   transport: Extract<RealtimeTransport, "websocket">;
-  socket: WebSocket | null;
   lastMessage: TIncoming | null;
   lastMessageEvent: MessageEvent<unknown> | null;
   lastCloseEvent: CloseEvent | null;
@@ -48,7 +46,28 @@ export interface UseWebSocketResult<TIncoming = unknown, TOutgoing = TIncoming>
   close: (code?: number, reason?: string) => void;
   reconnect: () => void;
   send: (message: TOutgoing) => boolean;
-}
+};
+
+export type UseWebSocketResult<
+  TIncoming = unknown,
+  TOutgoing = TIncoming
+> =
+  | (UseWebSocketResultBase<TIncoming, TOutgoing> &
+      Extract<ConnectionStateSnapshot, { status: "open" }> & {
+        socket: WebSocket;
+      })
+  | (UseWebSocketResultBase<TIncoming, TOutgoing> &
+      Extract<ConnectionStateSnapshot, { status: "connecting" | "reconnecting" }> & {
+        socket: WebSocket | null;
+      })
+  | (UseWebSocketResultBase<TIncoming, TOutgoing> &
+      Extract<ConnectionStateSnapshot, { status: "closing" }> & {
+        socket: WebSocket | null;
+      })
+  | (UseWebSocketResultBase<TIncoming, TOutgoing> &
+      Extract<ConnectionStateSnapshot, { status: "idle" | "closed" | "error" }> & {
+        socket: WebSocket | null;
+      });
 
 export type UseWebSocketHook = <TIncoming = unknown, TOutgoing = TIncoming>(
   options: UseWebSocketOptions<TIncoming, TOutgoing>

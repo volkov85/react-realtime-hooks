@@ -437,38 +437,52 @@ export const useWebSocket: UseWebSocketHook = <
     isSupported: supported,
     lastChangedAt: state.lastChangedAt
   });
-
-  return {
-    ...snapshot,
+  const heartbeatState =
+    options.heartbeat === false
+      ? null
+      : {
+          hasTimedOut: heartbeat.hasTimedOut,
+          isRunning: heartbeat.isRunning,
+          lastAckAt: heartbeat.lastAckAt,
+          lastBeatAt: heartbeat.lastBeatAt,
+          latencyMs: heartbeat.latencyMs
+        };
+  const reconnectState =
+    options.reconnect === false
+      ? null
+      : {
+          attempt: reconnect.attempt,
+          isScheduled: reconnect.isScheduled,
+          nextDelayMs: reconnect.nextDelayMs,
+          status: reconnect.status
+        };
+  const commonResult = {
     bufferedAmount: state.bufferedAmount,
     close,
-    heartbeatState:
-      options.heartbeat === false
-        ? null
-        : {
-            hasTimedOut: heartbeat.hasTimedOut,
-            isRunning: heartbeat.isRunning,
-            lastAckAt: heartbeat.lastAckAt,
-            lastBeatAt: heartbeat.lastBeatAt,
-            latencyMs: heartbeat.latencyMs
-          },
+    heartbeatState,
     lastCloseEvent: state.lastCloseEvent,
     lastError: state.lastError,
     lastMessage: state.lastMessage,
     lastMessageEvent: state.lastMessageEvent,
     open,
     reconnect: reconnectNow,
-    reconnectState:
-      options.reconnect === false
-        ? null
-        : {
-            attempt: reconnect.attempt,
-            isScheduled: reconnect.isScheduled,
-            nextDelayMs: reconnect.nextDelayMs,
-            status: reconnect.status
-          },
+    reconnectState,
     send,
-    socket: socketRef.current,
-    transport: "websocket"
+    transport: "websocket" as const
+  };
+  const socket = socketRef.current;
+
+  if (snapshot.status === "open") {
+    return {
+      ...snapshot,
+      ...commonResult,
+      socket: socket as WebSocket
+    };
+  }
+
+  return {
+    ...snapshot,
+    ...commonResult,
+    socket
   };
 };

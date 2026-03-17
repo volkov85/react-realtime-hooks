@@ -9,11 +9,18 @@ import {
 } from "../../src";
 import type { UseHeartbeatOptions } from "../../src";
 
+type LogEntry = {
+  id: string;
+  text: string;
+};
+
 const formatTimestamp = (value: number | null): string =>
   value === null ? "not recorded" : new Date(value).toLocaleTimeString();
 
-const createLogEntry = (label: string, details: string): string =>
-  `${new Date().toLocaleTimeString()} | ${label} | ${details}`;
+const createLogEntry = (label: string, details: string): LogEntry => ({
+  id: `${Date.now()}-${crypto.randomUUID()}`,
+  text: `${new Date().toLocaleTimeString()} | ${label} | ${details}`
+});
 
 export const App = () => {
   const [trackTransitions, setTrackTransitions] = useState(true);
@@ -124,11 +131,11 @@ export const App = () => {
     withCredentials: eventSourceWithCredentials
   });
 
-  const [onlineEvents, setOnlineEvents] = useState<string[]>([]);
-  const [reconnectEvents, setReconnectEvents] = useState<string[]>([]);
-  const [heartbeatEvents, setHeartbeatEvents] = useState<string[]>([]);
-  const [webSocketEvents, setWebSocketEvents] = useState<string[]>([]);
-  const [eventSourceLog, setEventSourceLog] = useState<string[]>([]);
+  const [onlineEvents, setOnlineEvents] = useState<LogEntry[]>([]);
+  const [reconnectEvents, setReconnectEvents] = useState<LogEntry[]>([]);
+  const [heartbeatEvents, setHeartbeatEvents] = useState<LogEntry[]>([]);
+  const [webSocketEvents, setWebSocketEvents] = useState<LogEntry[]>([]);
+  const [eventSourceLog, setEventSourceLog] = useState<LogEntry[]>([]);
 
   useEffect(() => {
     const entry = createLogEntry(
@@ -306,7 +313,7 @@ export const App = () => {
             <h3>Event log</h3>
             <ul className="log">
               {onlineEvents.map((entry) => (
-                <li key={entry}>{entry}</li>
+                <li key={entry.id}>{entry.text}</li>
               ))}
             </ul>
           </article>
@@ -454,7 +461,7 @@ export const App = () => {
             <h3>Event log</h3>
             <ul className="log">
               {reconnectEvents.map((entry) => (
-                <li key={entry}>{entry}</li>
+                <li key={entry.id}>{entry.text}</li>
               ))}
             </ul>
           </article>
@@ -597,7 +604,7 @@ export const App = () => {
             <h3>Event log</h3>
             <ul className="log">
               {heartbeatEvents.map((entry) => (
-                <li key={entry}>{entry}</li>
+                <li key={entry.id}>{entry.text}</li>
               ))}
             </ul>
           </article>
@@ -781,7 +788,7 @@ export const App = () => {
             <h3>Event log</h3>
             <ul className="log">
               {webSocketEvents.map((entry) => (
-                <li key={entry}>{entry}</li>
+                <li key={entry.id}>{entry.text}</li>
               ))}
             </ul>
           </article>
@@ -932,7 +939,7 @@ export const App = () => {
             <h3>Event log</h3>
             <ul className="log">
               {eventSourceLog.map((entry) => (
-                <li key={entry}>{entry}</li>
+                <li key={entry.id}>{entry.text}</li>
               ))}
             </ul>
           </article>

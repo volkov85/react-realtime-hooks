@@ -337,26 +337,39 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     isSupported: supported,
     lastChangedAt: state.lastChangedAt
   });
-
-  return {
-    ...snapshot,
+  const reconnectState =
+    options.reconnect === false
+      ? null
+      : {
+          attempt: reconnect.attempt,
+          isScheduled: reconnect.isScheduled,
+          nextDelayMs: reconnect.nextDelayMs,
+          status: reconnect.status
+        };
+  const commonResult = {
     close,
-    eventSource: eventSourceRef.current,
     lastError: state.lastError,
     lastEventName: state.lastEventName,
     lastMessage: state.lastMessage,
     lastMessageEvent: state.lastMessageEvent,
     open,
     reconnect: reconnectNow,
-    reconnectState:
-      options.reconnect === false
-        ? null
-        : {
-            attempt: reconnect.attempt,
-            isScheduled: reconnect.isScheduled,
-            nextDelayMs: reconnect.nextDelayMs,
-            status: reconnect.status
-          },
-    transport: "eventsource"
+    reconnectState,
+    transport: "eventsource" as const
+  };
+  const eventSource = eventSourceRef.current;
+
+  if (snapshot.status === "open") {
+    return {
+      ...snapshot,
+      ...commonResult,
+      eventSource: eventSource as EventSource
+    };
+  }
+
+  return {
+    ...snapshot,
+    ...commonResult,
+    eventSource
   };
 };
