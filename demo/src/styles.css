@@ -138,6 +138,10 @@ select {
   background: linear-gradient(135deg, rgba(8, 54, 46, 0.88), rgba(22, 102, 79, 0.72));
 }
 
+.eventsource-panel {
+  background: linear-gradient(135deg, rgba(49, 25, 6, 0.88), rgba(128, 74, 28, 0.72));
+}
+
 .panel-header {
   display: flex;
   align-items: center;
