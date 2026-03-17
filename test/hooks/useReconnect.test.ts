@@ -65,6 +65,32 @@ describe("useReconnect", () => {
     expect(result.current.isActive).toBe(true);
   });
 
+  it("applies exponential backoff across attempts", () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useReconnect({
+        backoffFactor: 2,
+        initialDelayMs: 100,
+        jitterRatio: 0
+      })
+    );
+
+    act(() => {
+      result.current.schedule();
+    });
+
+    expect(result.current.nextDelayMs).toBe(100);
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+      result.current.schedule("error");
+    });
+
+    expect(result.current.attempt).toBe(2);
+    expect(result.current.nextDelayMs).toBe(200);
+  });
+
   it("cancels scheduled reconnects", () => {
     vi.useFakeTimers();
 

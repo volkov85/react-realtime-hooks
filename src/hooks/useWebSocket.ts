@@ -87,7 +87,9 @@ export const useWebSocket: UseWebSocketHook = <
 
   const socketRef = useRef<WebSocket | null>(null);
   const socketKeyRef = useRef<string | null>(null);
+  const manualCloseRef = useRef(false);
   const manualOpenRef = useRef(false);
+  const skipCloseReconnectRef = useRef(false);
   const suppressReconnectRef = useRef(false);
   const [openNonce, setOpenNonce] = useState(0);
   const [state, setState] = useState<WebSocketState<TIncoming>>(() =>
@@ -200,6 +202,7 @@ export const useWebSocket: UseWebSocketHook = <
   });
 
   const handleOpen = useEffectEvent((event: Event, socket: WebSocket) => {
+    manualCloseRef.current = false;
     suppressReconnectRef.current = false;
     reconnect.markConnected();
     heartbeat.start();
@@ -253,9 +256,12 @@ export const useWebSocket: UseWebSocketHook = <
     socketKeyRef.current = null;
     heartbeat.stop();
     updateBufferedAmount();
+    const skipCloseReconnect = skipCloseReconnectRef.current;
+    skipCloseReconnectRef.current = false;
 
     const shouldReconnect =
       !suppressReconnectRef.current &&
+      !skipCloseReconnect &&
       reconnectEnabled &&
       (options.shouldReconnect?.(event) ?? true);
 
@@ -276,6 +282,7 @@ export const useWebSocket: UseWebSocketHook = <
   });
 
   const open = (): void => {
+    manualCloseRef.current = false;
     manualOpenRef.current = true;
     suppressReconnectRef.current = false;
     reconnect.cancel();
@@ -283,14 +290,18 @@ export const useWebSocket: UseWebSocketHook = <
   };
 
   const reconnectNow = (): void => {
+    manualCloseRef.current = false;
     manualOpenRef.current = true;
-    suppressReconnectRef.current = false;
+    skipCloseReconnectRef.current = true;
+    suppressReconnectRef.current = true;
     heartbeat.stop();
     closeSocket();
+    suppressReconnectRef.current = false;
     reconnect.schedule("manual");
   };
 
   const close = (code?: number, reason?: string): void => {
+    manualCloseRef.current = true;
     manualOpenRef.current = false;
     suppressReconnectRef.current = true;
     reconnect.cancel();
@@ -339,7 +350,9 @@ export const useWebSocket: UseWebSocketHook = <
     }
 
     const shouldConnect =
-      connect || manualOpenRef.current || reconnect.status === "running";
+      (connect && !manualCloseRef.current) ||
+      manualOpenRef.current ||
+      reconnect.status === "running";
     const nextSocketKey = `${resolvedUrl}::${protocolsDependency}::${options.binaryType ?? "blob"}`;
 
     if (!shouldConnect) {
@@ -351,7 +364,7 @@ export const useWebSocket: UseWebSocketHook = <
       socketKeyRef.current = null;
       commitState((current) => ({
         ...current,
-        status: "idle"
+        status: manualCloseRef.current ? "closed" : "idle"
       }));
       return;
     }
@@ -380,18 +393,30 @@ export const useWebSocket: UseWebSocketHook = <
           : "connecting"
     }));
 
-    socket.addEventListener("open", (event) => {
+    const handleSocketOpen = (event: Event): void => {
       handleOpen(event, socket);
-    });
-    socket.addEventListener("message", (event) => {
+    };
+    const handleSocketMessage = (event: MessageEvent<unknown>): void => {
       handleMessage(event);
-    });
-    socket.addEventListener("error", (event) => {
+    };
+    const handleSocketError = (event: Event): void => {
       handleError(event);
-    });
-    socket.addEventListener("close", (event) => {
+    };
+    const handleSocketClose = (event: CloseEvent): void => {
       handleClose(event);
-    });
+    };
+
+    socket.addEventListener("open", handleSocketOpen);
+    socket.addEventListener("message", handleSocketMessage);
+    socket.addEventListener("error", handleSocketError);
+    socket.addEventListener("close", handleSocketClose);
+
+    return () => {
+      socket.removeEventListener("open", handleSocketOpen);
+      socket.removeEventListener("message", handleSocketMessage);
+      socket.removeEventListener("error", handleSocketError);
+      socket.removeEventListener("close", handleSocketClose);
+    };
   }, [
     connect,
     openNonce,
