@@ -1,31 +1,56 @@
 # react-realtime-hooks
 
-Typed React hooks for realtime client state: WebSocket, SSE, reconnect, heartbeat, and online status.
+[![npm version](https://img.shields.io/npm/v/react-realtime-hooks?color=0f766e)](https://www.npmjs.com/package/react-realtime-hooks)
+[![Quality Gate](https://img.shields.io/github/actions/workflow/status/volkov85/react-realtime-hooks/quality-gate.yml?branch=main&label=quality%20gate)](https://github.com/volkov85/react-realtime-hooks/actions/workflows/quality-gate.yml)
+[![Demo](https://img.shields.io/github/actions/workflow/status/volkov85/react-realtime-hooks/pages.yml?branch=main&label=demo)](https://github.com/volkov85/react-realtime-hooks/actions/workflows/pages.yml)
+[![license](https://img.shields.io/npm/l/react-realtime-hooks)](https://github.com/volkov85/react-realtime-hooks/blob/main/LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-typed-3178c6)](https://www.typescriptlang.org/)
+[![react](https://img.shields.io/badge/react-18.3%2B%20%7C%2019-149eca)](https://www.npmjs.com/package/react)
 
-`react-realtime-hooks` is built for apps that need transport state, retry strategy, and browser network signals without rewriting the same connection lifecycle in every component.
+Production-ready React hooks for WebSocket and SSE with auto-reconnect, heartbeat, typed connection state, and browser network awareness.
+
+`react-realtime-hooks` is for apps that need more than "open a socket and hope for the best". It gives you composable hooks for transport lifecycle, retry strategy, heartbeat, and online status, so your UI can react to realtime state without rebuilding the same connection logic in every screen.
 
 Live demo: https://volkov85.github.io/react-realtime-hooks/
 
-## Why This Package
+## Why This Library
 
-- Realtime hooks usually stop at "open a socket". This package also models reconnect flow, heartbeat flow, browser online state, and transport snapshots.
-- TypeScript support is first-class: generic payload types, custom parsers/serializers, and discriminated connection states.
-- It is SSR-safe by default. The hooks avoid touching browser-only globals during server render.
-- The package has no runtime dependencies beyond React.
-- The repo is set up like a library product, not just a demo: tests, CI, publint, Changesets, and a demo app.
+Most realtime helpers stop at transport setup.
 
-## Features
+Real apps need:
 
-- `useWebSocket`
-- `useEventSource`
-- `useReconnect`
-- `useHeartbeat`
-- `useOnlineStatus`
-- Type-safe connection snapshots
-- Reconnect/backoff helpers
-- Browser API mocks in tests
-- Demo app for manual verification
-- Public GitHub Pages playground
+- explicit `connecting` / `reconnecting` / `closed` / `error` states
+- reconnect strategy with caps, jitter, and manual control
+- heartbeat and timeout tracking
+- clean SSR behavior
+- browser network awareness
+- typed message parsing and sending
+
+`react-realtime-hooks` packages those concerns into small hooks that compose cleanly in React.
+
+## Killer Features
+
+- `useWebSocket` and `useEventSource` return state you can render, not just transport instances.
+- Built-in reconnect flow with exponential backoff, jitter, attempt limits, and manual restart.
+- Heartbeat support with ack matching, timeout detection, and latency measurement.
+- Discriminated connection snapshots: `idle`, `connecting`, `open`, `reconnecting`, `closing`, `closed`, `error`.
+- First-class TypeScript support with generic message types and custom parsers/serializers.
+- SSR-safe by default. No browser-only globals are touched during server render.
+- Zero runtime dependencies beyond React.
+- Manual controls stay available when you need them: `open()`, `close()`, `reconnect()`, `send()`.
+
+## Raw WebSocket vs This Library
+
+| Concern           | Raw WebSocket                      | `react-realtime-hooks`                           |
+| ----------------- | ---------------------------------- | ------------------------------------------------ |
+| Connection state  | You model it yourself              | Built-in status model you can render directly    |
+| Reconnect flow    | Manual timers and teardown         | `useReconnect` with backoff, jitter, and limits  |
+| Heartbeat         | Custom ping/pong loop              | `heartbeat` support with timeout and latency     |
+| Network awareness | Separate browser event wiring      | `useOnlineStatus` for online/offline state       |
+| SSR safety        | Easy to break during render        | Browser-only behavior stays out of server render |
+| UI ergonomics     | Event handlers and refs everywhere | Hook result already shaped for product UI        |
+
+The point is not to hide WebSocket. The point is to stop rewriting the same lifecycle machinery around it.
 
 ## Install
 
@@ -37,95 +62,153 @@ Peer dependency:
 
 - `react@^18.3.0 || ^19.0.0`
 
-## Quick Start
+## How It Feels
 
 ```tsx
-import { useWebSocket } from "react-realtime-hooks";
+import { useOnlineStatus, useWebSocket } from "react-realtime-hooks";
 
-export const Notifications = () => {
-  const socket = useWebSocket<{ type: string; message: string }>({
-    url: "ws://localhost:8080",
+type IncomingMessage =
+  | { type: "notification"; text: string }
+  | { type: "pong" };
+
+type OutgoingMessage = { type: "ack"; id: string } | { type: "ping" };
+
+export function NotificationsPanel() {
+  const network = useOnlineStatus();
+  const socket = useWebSocket<IncomingMessage, OutgoingMessage>({
+    url: "ws://localhost:8080/notifications",
+    parseMessage: (event) => JSON.parse(String(event.data)) as IncomingMessage,
     reconnect: {
       initialDelayMs: 1_000,
-      maxAttempts: 5
-    }
-  });
-
-  if (socket.status === "open") {
-    return <div>{socket.lastMessage?.message ?? "Connected"}</div>;
-  }
-
-  return <div>{socket.status}</div>;
-};
-```
-
-## Links
-
-- Demo: https://volkov85.github.io/react-realtime-hooks/
-- Repository: https://github.com/volkov85/react-realtime-hooks
-
-## Examples
-
-### useOnlineStatus
-
-```tsx
-import { useOnlineStatus } from "react-realtime-hooks";
-
-export const NetworkIndicator = () => {
-  const network = useOnlineStatus({
-    trackTransitions: true
+      maxAttempts: null,
+    },
+    heartbeat: {
+      intervalMs: 10_000,
+      timeoutMs: 3_000,
+      message: { type: "ping" },
+      matchesAck: (message) => message.type === "pong",
+    },
   });
 
   return (
-    <span>
-      {network.isOnline ? "Online" : "Offline"}
-    </span>
+    <section>
+      <p>
+        Network: {network.isOnline ? "online" : "offline"} | Transport:{" "}
+        {socket.status}
+      </p>
+
+      {socket.status === "reconnecting" && (
+        <p>Retrying in {socket.reconnectState?.nextDelayMs ?? 0}ms</p>
+      )}
+
+      {socket.heartbeatState?.hasTimedOut && <p>Heartbeat timed out</p>}
+
+      <button
+        disabled={socket.status !== "open"}
+        onClick={() => socket.send({ type: "ack", id: "msg-42" })}
+      >
+        Ack latest
+      </button>
+
+      <pre>{JSON.stringify(socket.lastMessage, null, 2)}</pre>
+    </section>
   );
-};
+}
 ```
 
-### useReconnect
+You are not wiring raw `onopen`, `onclose`, and timer cleanup by hand. You render the current transport state and keep moving.
 
-```tsx
-import { useReconnect } from "react-realtime-hooks";
+## Status-First UX
 
-export const RetryPanel = () => {
-  const reconnect = useReconnect({
-    initialDelayMs: 1_000,
-    maxAttempts: 5,
-    jitterRatio: 0
-  });
+The transport hooks return a discriminated status model, so UI states stay explicit instead of collapsing into a vague `isConnected` boolean.
 
-  return (
-    <button onClick={() => reconnect.schedule("manual")}>
-      Retry now
-    </button>
-  );
-};
+- `idle`: auto-connect is off and nothing is opening
+- `connecting`: first connection attempt is in progress
+- `open`: transport is live
+- `reconnecting`: retry flow is active
+- `closing`: explicit close is in progress
+- `closed`: transport is stopped and will not continue
+- `error`: an unrecoverable parse/runtime error occurred
+
+That makes product UI straightforward:
+
+- show a retry banner on `reconnecting`
+- disable send buttons unless `status === "open"`
+- show offline or degraded indicators without guessing
+- surface heartbeat timeout separately from transport close
+
+## Architecture Idea
+
+This library is built as layered primitives, not one giant "magic realtime client".
+
+```text
+Browser APIs
+  WebSocket / EventSource / navigator.onLine
+
+Core hooks
+  useReconnect / useHeartbeat / useOnlineStatus
+
+Transport hooks
+  useWebSocket / useEventSource
+
+UI
+  banners, badges, retry states, feed views, chat inputs
 ```
 
-### useHeartbeat
+That separation matters:
 
-```tsx
-import { useHeartbeat } from "react-realtime-hooks";
+- you can use `useReconnect` and `useHeartbeat` outside the transport hooks
+- transport hooks stay predictable instead of hiding lifecycle decisions
+- the UI gets a stable state model instead of raw event listeners
 
-export const HeartbeatPanel = () => {
-  const heartbeat = useHeartbeat<string, string>({
-    intervalMs: 5_000,
-    matchesAck: (message) => message === "pong",
-    startOnMount: true,
-    timeoutMs: 2_000
-  });
+## Real-World Use Cases
 
-  return (
-    <div>
-      running: {String(heartbeat.isRunning)} | latency: {heartbeat.latencyMs ?? "n/a"}
-    </div>
-  );
-};
-```
+- Chat and support widgets that need reconnect and delivery-aware UI
+- Notification centers and activity feeds over WebSocket
+- Live dashboards and ops consoles consuming SSE streams
+- Trading, analytics, and monitoring UIs with explicit connection states
+- Device and IoT panels that need heartbeat and timeout visibility
+- Collaborative tools that must reflect degraded or reconnecting transport state
 
-### useWebSocket
+## Anti-Features
+
+This package is intentionally not trying to be a full client platform.
+
+- No bundled transport polyfills
+- No opinionated server protocol
+- No hidden global singleton connection manager
+- No built-in auth refresh flow
+- No state management framework or cache layer
+- No "smart" abstractions that erase transport state details
+
+If you need a predictable hook layer for realtime UI, that is the point. If you need a full messaging platform, this is a lower-level building block.
+
+## Why Not Write It Yourself?
+
+Because "just a socket hook" turns into more work than it looks like:
+
+- reconnect timers need careful cleanup and manual-close semantics
+- heartbeat loops need ack matching, timeout handling, and teardown discipline
+- URL changes and remounts create subtle race conditions
+- SSR breaks if browser globals leak into render
+- a single `isOpen` flag is not enough for real UI states
+- parse failures and transport errors need consistent state transitions
+
+This library already models those edges in a reusable way.
+
+## API At A Glance
+
+| Hook              | Use it for                           | Returns                                                                      |
+| ----------------- | ------------------------------------ | ---------------------------------------------------------------------------- |
+| `useWebSocket`    | Bidirectional realtime channels      | `status`, `socket`, `lastMessage`, `send()`, `reconnect()`, `heartbeatState` |
+| `useEventSource`  | Server-Sent Events streams           | `status`, `eventSource`, `lastMessage`, `lastEventName`, `reconnect()`       |
+| `useReconnect`    | Reusable retry and backoff logic     | `schedule()`, `cancel()`, `reset()`, `attempt`, `status`                     |
+| `useHeartbeat`    | Liveness checks and timeout tracking | `start()`, `stop()`, `beat()`, `notifyAck()`, `latencyMs`                    |
+| `useOnlineStatus` | Browser online/offline state         | `isOnline`, `isSupported`, transition timestamps                             |
+
+## Transport Examples
+
+### `useWebSocket`
 
 ```tsx
 import { useWebSocket } from "react-realtime-hooks";
@@ -140,31 +223,32 @@ type OutgoingMessage = {
   text?: string;
 };
 
-export const ChatSocket = () => {
+export function ChatSocket() {
   const socket = useWebSocket<IncomingMessage, OutgoingMessage>({
     url: "ws://localhost:8080",
-    heartbeat: {
-      intervalMs: 10_000,
-      matchesAck: (message) => message.type === "system" && message.text === "pong",
-      message: { type: "ping" },
-      timeoutMs: 3_000
-    },
     parseMessage: (event) => JSON.parse(String(event.data)) as IncomingMessage,
     reconnect: {
       initialDelayMs: 1_000,
-      maxAttempts: null
-    }
+      maxAttempts: null,
+    },
+    heartbeat: {
+      intervalMs: 10_000,
+      timeoutMs: 3_000,
+      message: { type: "ping" },
+      matchesAck: (message) =>
+        message.type === "system" && message.text === "pong",
+    },
   });
 
   return (
-    <button onClick={() => socket.send({ text: "Hello", type: "chat" })}>
+    <button onClick={() => socket.send({ type: "chat", text: "Hello" })}>
       Send
     </button>
   );
-};
+}
 ```
 
-### useEventSource
+### `useEventSource`
 
 ```tsx
 import { useEventSource } from "react-realtime-hooks";
@@ -175,15 +259,15 @@ type FeedItem = {
   text: string;
 };
 
-export const LiveFeed = () => {
+export function LiveFeed() {
   const feed = useEventSource<FeedItem>({
+    url: "http://localhost:8080/sse",
     events: ["notice"],
     parseMessage: (event) => JSON.parse(event.data) as FeedItem,
     reconnect: {
       initialDelayMs: 1_000,
-      maxAttempts: 10
+      maxAttempts: 10,
     },
-    url: "http://localhost:8080/sse"
   });
 
   return (
@@ -191,204 +275,262 @@ export const LiveFeed = () => {
       {feed.lastEventName}: {feed.lastMessage?.text ?? "Waiting for updates"}
     </div>
   );
-};
+}
 ```
 
-## API
+## Core Hook Examples
 
-### useOnlineStatus
+### `useReconnect`
 
-#### Options
+```tsx
+import { useReconnect } from "react-realtime-hooks";
 
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `initialOnline` | `boolean` | `true` | Fallback value when `navigator.onLine` is unavailable |
-| `trackTransitions` | `boolean` | `true` | Tracks `lastChangedAt`, `wentOnlineAt`, `wentOfflineAt` |
+export function RetryPanel() {
+  const reconnect = useReconnect({
+    initialDelayMs: 1_000,
+    maxAttempts: 5,
+    jitterRatio: 0,
+  });
 
-#### Result
+  return (
+    <button onClick={() => reconnect.schedule("manual")}>Retry now</button>
+  );
+}
+```
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `isOnline` | `boolean` | Current browser online state |
-| `isSupported` | `boolean` | Whether `navigator.onLine` is available |
-| `lastChangedAt` | `number \| null` | Timestamp of the last transition |
-| `wentOnlineAt` | `number \| null` | Timestamp of the last online transition |
+### `useHeartbeat`
+
+```tsx
+import { useHeartbeat } from "react-realtime-hooks";
+
+export function HeartbeatPanel() {
+  const heartbeat = useHeartbeat<string, string>({
+    intervalMs: 5_000,
+    timeoutMs: 2_000,
+    startOnMount: true,
+    matchesAck: (message) => message === "pong",
+  });
+
+  return (
+    <div>
+      running: {String(heartbeat.isRunning)} | latency:{" "}
+      {heartbeat.latencyMs ?? "n/a"}
+    </div>
+  );
+}
+```
+
+### `useOnlineStatus`
+
+```tsx
+import { useOnlineStatus } from "react-realtime-hooks";
+
+export function NetworkIndicator() {
+  const network = useOnlineStatus({
+    trackTransitions: true,
+  });
+
+  return <span>{network.isOnline ? "Online" : "Offline"}</span>;
+}
+```
+
+## API Reference
+
+<details>
+<summary><strong>useWebSocket</strong></summary>
+
+### Options
+
+| Option             | Type                           | Default                    | Description                        |
+| ------------------ | ------------------------------ | -------------------------- | ---------------------------------- |
+| `url`              | `UrlProvider`                  | Required                   | String, `URL`, or lazy URL factory |
+| `protocols`        | `string \| string[]`           | `undefined`                | WebSocket subprotocols             |
+| `connect`          | `boolean`                      | `true`                     | Auto-connect on mount              |
+| `binaryType`       | `BinaryType`                   | `"blob"`                   | Socket binary mode                 |
+| `parseMessage`     | `(event) => TIncoming`         | raw `event.data`           | Incoming parser                    |
+| `serializeMessage` | `(message) => ...`             | JSON/string passthrough    | Outgoing serializer                |
+| `reconnect`        | `false \| UseReconnectOptions` | enabled                    | Reconnect configuration            |
+| `heartbeat`        | `false \| UseHeartbeatOptions` | disabled unless configured | Heartbeat configuration            |
+| `shouldReconnect`  | `(event) => boolean`           | `true`                     | Reconnect gate on close            |
+| `onOpen`           | `(event, socket) => void`      | `undefined`                | Open callback                      |
+| `onMessage`        | `(message, event) => void`     | `undefined`                | Message callback                   |
+| `onError`          | `(event) => void`              | `undefined`                | Error callback                     |
+| `onClose`          | `(event) => void`              | `undefined`                | Close callback                     |
+
+### Result
+
+| Field              | Type                         | Description                                                                |
+| ------------------ | ---------------------------- | -------------------------------------------------------------------------- |
+| `status`           | connection union             | `idle`, `connecting`, `open`, `closing`, `closed`, `reconnecting`, `error` |
+| `socket`           | `WebSocket \| null`          | Current transport instance                                                 |
+| `lastMessage`      | `TIncoming \| null`          | Last parsed message                                                        |
+| `lastMessageEvent` | `MessageEvent \| null`       | Last raw message event                                                     |
+| `lastCloseEvent`   | `CloseEvent \| null`         | Last close event                                                           |
+| `lastError`        | `Event \| null`              | Last error                                                                 |
+| `bufferedAmount`   | `number`                     | Current socket buffer size                                                 |
+| `reconnectState`   | reconnect snapshot or `null` | Current reconnect data                                                     |
+| `heartbeatState`   | heartbeat snapshot or `null` | Current heartbeat data                                                     |
+| `open`             | `() => void`                 | Manual connect                                                             |
+| `close`            | `(code?, reason?) => void`   | Manual close                                                               |
+| `reconnect`        | `() => void`                 | Manual reconnect                                                           |
+| `send`             | `(message) => boolean`       | Sends an outgoing payload                                                  |
+
+</details>
+
+<details>
+<summary><strong>useEventSource</strong></summary>
+
+### Options
+
+| Option            | Type                                  | Default          | Description                         |
+| ----------------- | ------------------------------------- | ---------------- | ----------------------------------- |
+| `url`             | `UrlProvider`                         | Required         | String, `URL`, or lazy URL factory  |
+| `withCredentials` | `boolean`                             | `false`          | Passes credentials to `EventSource` |
+| `connect`         | `boolean`                             | `true`           | Auto-connect on mount               |
+| `events`          | `readonly string[]`                   | `undefined`      | Named SSE events to subscribe to    |
+| `parseMessage`    | `(event) => TMessage`                 | raw `event.data` | Incoming parser                     |
+| `reconnect`       | `false \| UseReconnectOptions`        | enabled          | Reconnect configuration             |
+| `shouldReconnect` | `(event) => boolean`                  | `true`           | Reconnect gate on error             |
+| `onOpen`          | `(event, source) => void`             | `undefined`      | Open callback                       |
+| `onMessage`       | `(message, event) => void`            | `undefined`      | Default `message` callback          |
+| `onError`         | `(event) => void`                     | `undefined`      | Error callback                      |
+| `onEvent`         | `(eventName, message, event) => void` | `undefined`      | Named event callback                |
+
+### Result
+
+| Field              | Type                         | Description                                                                |
+| ------------------ | ---------------------------- | -------------------------------------------------------------------------- |
+| `status`           | connection union             | `idle`, `connecting`, `open`, `closing`, `closed`, `reconnecting`, `error` |
+| `eventSource`      | `EventSource \| null`        | Current transport instance                                                 |
+| `lastEventName`    | `string \| null`             | Last SSE event name                                                        |
+| `lastMessage`      | `TMessage \| null`           | Last parsed payload                                                        |
+| `lastMessageEvent` | `MessageEvent \| null`       | Last raw message event                                                     |
+| `lastError`        | `Event \| null`              | Last error                                                                 |
+| `reconnectState`   | reconnect snapshot or `null` | Current reconnect data                                                     |
+| `open`             | `() => void`                 | Manual connect                                                             |
+| `close`            | `() => void`                 | Manual close                                                               |
+| `reconnect`        | `() => void`                 | Manual reconnect                                                           |
+
+</details>
+
+<details>
+<summary><strong>useReconnect</strong></summary>
+
+### Options
+
+| Option           | Type                     | Default     | Description                          |
+| ---------------- | ------------------------ | ----------- | ------------------------------------ |
+| `enabled`        | `boolean`                | `true`      | Enables scheduling attempts          |
+| `initialDelayMs` | `number`                 | `1000`      | Delay for the first attempt          |
+| `maxDelayMs`     | `number`                 | `30000`     | Delay cap                            |
+| `backoffFactor`  | `number`                 | `2`         | Exponential multiplier               |
+| `jitterRatio`    | `number`                 | `0.2`       | Randomized variance ratio            |
+| `maxAttempts`    | `number \| null`         | `null`      | Max attempts, `null` means unlimited |
+| `getDelayMs`     | `ReconnectDelayStrategy` | `undefined` | Custom delay strategy                |
+| `resetOnSuccess` | `boolean`                | `true`      | Resets attempt count after success   |
+| `onSchedule`     | `(attempt) => void`      | `undefined` | Called when an attempt is scheduled  |
+| `onCancel`       | `() => void`             | `undefined` | Called when scheduling is canceled   |
+| `onReset`        | `() => void`             | `undefined` | Called when state is reset           |
+
+### Result
+
+| Field           | Type                                              | Description                              |
+| --------------- | ------------------------------------------------- | ---------------------------------------- |
+| `status`        | `"idle" \| "scheduled" \| "running" \| "stopped"` | Current reconnect state                  |
+| `attempt`       | `number`                                          | Current attempt number                   |
+| `nextDelayMs`   | `number \| null`                                  | Delay of the scheduled attempt           |
+| `isActive`      | `boolean`                                         | `true` when scheduled or running         |
+| `isScheduled`   | `boolean`                                         | `true` when waiting for the next attempt |
+| `schedule`      | `(trigger?) => void`                              | Schedules an attempt                     |
+| `cancel`        | `() => void`                                      | Cancels the current schedule             |
+| `reset`         | `() => void`                                      | Resets attempts and status               |
+| `markConnected` | `() => void`                                      | Marks the transport as restored          |
+
+</details>
+
+<details>
+<summary><strong>useHeartbeat</strong></summary>
+
+### Options
+
+| Option         | Type                                                | Default     | Description                                 |
+| -------------- | --------------------------------------------------- | ----------- | ------------------------------------------- |
+| `enabled`      | `boolean`                                           | `true`      | Enables the heartbeat loop                  |
+| `intervalMs`   | `number`                                            | Required    | Beat interval                               |
+| `timeoutMs`    | `number`                                            | `undefined` | Timeout before `hasTimedOut` becomes `true` |
+| `message`      | `TOutgoing \| (() => TOutgoing)`                    | `undefined` | Optional heartbeat payload                  |
+| `beat`         | `() => void \| boolean \| Promise<void \| boolean>` | `undefined` | Custom beat side effect                     |
+| `matchesAck`   | `(message) => boolean`                              | `undefined` | Ack matcher                                 |
+| `startOnMount` | `boolean`                                           | `true`      | Starts immediately                          |
+| `onBeat`       | `() => void`                                        | `undefined` | Called on every beat                        |
+| `onTimeout`    | `() => void`                                        | `undefined` | Called on timeout                           |
+
+### Result
+
+| Field         | Type                   | Description                       |
+| ------------- | ---------------------- | --------------------------------- |
+| `isRunning`   | `boolean`              | Whether the loop is active        |
+| `hasTimedOut` | `boolean`              | Whether the latest beat timed out |
+| `lastBeatAt`  | `number \| null`       | Last beat timestamp               |
+| `lastAckAt`   | `number \| null`       | Last ack timestamp                |
+| `latencyMs`   | `number \| null`       | Ack latency                       |
+| `start`       | `() => void`           | Starts the loop                   |
+| `stop`        | `() => void`           | Stops the loop                    |
+| `beat`        | `() => void`           | Triggers a manual beat            |
+| `notifyAck`   | `(message) => boolean` | Applies an incoming ack message   |
+
+</details>
+
+<details>
+<summary><strong>useOnlineStatus</strong></summary>
+
+### Options
+
+| Option             | Type      | Default | Description                                             |
+| ------------------ | --------- | ------- | ------------------------------------------------------- |
+| `initialOnline`    | `boolean` | `true`  | Fallback value when `navigator.onLine` is unavailable   |
+| `trackTransitions` | `boolean` | `true`  | Tracks `lastChangedAt`, `wentOnlineAt`, `wentOfflineAt` |
+
+### Result
+
+| Field           | Type             | Description                              |
+| --------------- | ---------------- | ---------------------------------------- |
+| `isOnline`      | `boolean`        | Current browser online state             |
+| `isSupported`   | `boolean`        | Whether `navigator.onLine` is available  |
+| `lastChangedAt` | `number \| null` | Timestamp of the last transition         |
+| `wentOnlineAt`  | `number \| null` | Timestamp of the last online transition  |
 | `wentOfflineAt` | `number \| null` | Timestamp of the last offline transition |
 
-### useReconnect
-
-#### Options
-
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `enabled` | `boolean` | `true` | Enables scheduling attempts |
-| `initialDelayMs` | `number` | `1000` | Delay for the first attempt |
-| `maxDelayMs` | `number` | `30000` | Delay cap |
-| `backoffFactor` | `number` | `2` | Exponential multiplier |
-| `jitterRatio` | `number` | `0.2` | Randomized variance ratio |
-| `maxAttempts` | `number \| null` | `null` | Max attempts, `null` means unlimited |
-| `getDelayMs` | `ReconnectDelayStrategy` | `undefined` | Custom delay strategy |
-| `resetOnSuccess` | `boolean` | `true` | Resets attempt count after success |
-| `onSchedule` | `(attempt) => void` | `undefined` | Called when an attempt is scheduled |
-| `onCancel` | `() => void` | `undefined` | Called when scheduling is canceled |
-| `onReset` | `() => void` | `undefined` | Called when state is reset |
-
-#### Result
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `status` | `"idle" \| "scheduled" \| "running" \| "stopped"` | Current reconnect state |
-| `attempt` | `number` | Current attempt number |
-| `nextDelayMs` | `number \| null` | Delay of the scheduled attempt |
-| `isActive` | `boolean` | `true` when scheduled or running |
-| `isScheduled` | `boolean` | `true` when waiting for the next attempt |
-| `schedule` | `(trigger?) => void` | Schedules an attempt |
-| `cancel` | `() => void` | Cancels the current schedule |
-| `reset` | `() => void` | Resets attempts and status |
-| `markConnected` | `() => void` | Marks the transport as restored |
-
-### useHeartbeat
-
-#### Options
-
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `enabled` | `boolean` | `true` | Enables the heartbeat loop |
-| `intervalMs` | `number` | Required | Beat interval |
-| `timeoutMs` | `number` | `undefined` | Timeout before `hasTimedOut` becomes `true` |
-| `message` | `TOutgoing \| (() => TOutgoing)` | `undefined` | Optional heartbeat payload |
-| `beat` | `() => void \| boolean \| Promise<void \| boolean>` | `undefined` | Custom beat side effect |
-| `matchesAck` | `(message) => boolean` | `undefined` | Ack matcher |
-| `startOnMount` | `boolean` | `true` | Starts immediately |
-| `onBeat` | `() => void` | `undefined` | Called on every beat |
-| `onTimeout` | `() => void` | `undefined` | Called on timeout |
-
-#### Result
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `isRunning` | `boolean` | Whether the loop is active |
-| `hasTimedOut` | `boolean` | Whether the latest beat timed out |
-| `lastBeatAt` | `number \| null` | Last beat timestamp |
-| `lastAckAt` | `number \| null` | Last ack timestamp |
-| `latencyMs` | `number \| null` | Ack latency |
-| `start` | `() => void` | Starts the loop |
-| `stop` | `() => void` | Stops the loop |
-| `beat` | `() => void` | Triggers a manual beat |
-| `notifyAck` | `(message) => boolean` | Applies an incoming ack message |
-
-### useWebSocket
-
-#### Options
-
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `url` | `UrlProvider` | Required | String, `URL`, or lazy URL factory |
-| `protocols` | `string \| string[]` | `undefined` | WebSocket subprotocols |
-| `connect` | `boolean` | `true` | Auto-connect on mount |
-| `binaryType` | `BinaryType` | `"blob"` | Socket binary mode |
-| `parseMessage` | `(event) => TIncoming` | raw `event.data` | Incoming parser |
-| `serializeMessage` | `(message) => ...` | JSON/string passthrough | Outgoing serializer |
-| `reconnect` | `false \| UseReconnectOptions` | enabled | Reconnect configuration |
-| `heartbeat` | `false \| UseHeartbeatOptions` | disabled unless configured | Heartbeat configuration |
-| `shouldReconnect` | `(event) => boolean` | `true` | Reconnect gate on close |
-| `onOpen` | `(event, socket) => void` | `undefined` | Open callback |
-| `onMessage` | `(message, event) => void` | `undefined` | Message callback |
-| `onError` | `(event) => void` | `undefined` | Error callback |
-| `onClose` | `(event) => void` | `undefined` | Close callback |
-
-#### Result
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `status` | connection union | `idle`, `connecting`, `open`, `closing`, `closed`, `reconnecting`, `error` |
-| `socket` | `WebSocket \| null` | Current transport instance |
-| `lastMessage` | `TIncoming \| null` | Last parsed message |
-| `lastCloseEvent` | `CloseEvent \| null` | Last close event |
-| `lastError` | `Event \| null` | Last error |
-| `bufferedAmount` | `number` | Current socket buffer size |
-| `reconnectState` | reconnect snapshot or `null` | Current reconnect data |
-| `heartbeatState` | heartbeat snapshot or `null` | Current heartbeat data |
-| `open` | `() => void` | Manual connect |
-| `close` | `(code?, reason?) => void` | Manual close |
-| `reconnect` | `() => void` | Manual reconnect |
-| `send` | `(message) => boolean` | Sends an outgoing payload |
-
-### useEventSource
-
-#### Options
-
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `url` | `UrlProvider` | Required | String, `URL`, or lazy URL factory |
-| `withCredentials` | `boolean` | `false` | Passes credentials to `EventSource` |
-| `connect` | `boolean` | `true` | Auto-connect on mount |
-| `events` | `readonly string[]` | `undefined` | Named SSE events to subscribe to |
-| `parseMessage` | `(event) => TMessage` | raw `event.data` | Incoming parser |
-| `reconnect` | `false \| UseReconnectOptions` | enabled | Reconnect configuration |
-| `shouldReconnect` | `(event) => boolean` | `true` | Reconnect gate on error |
-| `onOpen` | `(event, source) => void` | `undefined` | Open callback |
-| `onMessage` | `(message, event) => void` | `undefined` | Default `message` callback |
-| `onError` | `(event) => void` | `undefined` | Error callback |
-| `onEvent` | `(eventName, message, event) => void` | `undefined` | Named event callback |
-
-#### Result
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `status` | connection union | `idle`, `connecting`, `open`, `closing`, `closed`, `reconnecting`, `error` |
-| `eventSource` | `EventSource \| null` | Current transport instance |
-| `lastEventName` | `string \| null` | Last SSE event name |
-| `lastMessage` | `TMessage \| null` | Last parsed payload |
-| `lastError` | `Event \| null` | Last error |
-| `reconnectState` | reconnect snapshot or `null` | Current reconnect data |
-| `open` | `() => void` | Manual connect |
-| `close` | `() => void` | Manual close |
-| `reconnect` | `() => void` | Manual reconnect |
-
-## Status Model
-
-The transport hooks return discriminated connection snapshots:
-
-- `open`: connected
-- `connecting`: opening the first connection
-- `reconnecting`: reconnect flow is in progress
-- `closing`: explicit close is in progress
-- `closed`: transport was explicitly closed or cannot continue
-- `idle`: auto-connect is disabled and nothing is currently opening
-- `error`: the hook encountered an unrecoverable parse/runtime error
+</details>
 
 ## Limitations And Edge Cases
 
 - `useEventSource` is receive-only by design. SSE is not a bidirectional transport.
-- `useWebSocket` heartbeat logic is client-side. It does not define your server ping/pong protocol for you.
+- `useWebSocket` heartbeat support is client-side. You still define your own server ping/pong protocol.
 - If `parseMessage` throws, the hook moves into `error` and stores `lastError`.
-- `connect: false` means the hook stays idle until `open()` is called.
-- Manual `close()` is sticky: the hook stays closed until you call `open()` or `reconnect()`.
-- On the server, transport hooks do not open real connections. They stay SSR-safe and connect only in the browser.
-- Browser-native `WebSocket` and `EventSource` behavior still applies: proxy issues, auth constraints, and network policies are outside the hook’s control.
-- `EventSource` named events are additive. The hook always listens to the default `message` channel.
-- No transport polyfills are bundled. If you target unsupported environments, provide your own runtime/polyfill.
+- `connect: false` keeps the hook in `idle` until `open()` is called.
+- Manual `close()` is sticky. The hook stays closed until `open()` or `reconnect()` is called.
+- No transport polyfills are bundled. Provide your own runtime support where needed.
+- Browser-native transport constraints still apply: auth, proxy, CORS, and network policy are outside the hook's control.
 
-## Testing
+## Testing And Quality
 
 The package includes behavior tests for:
 
 - connect / disconnect / reconnect
 - exponential backoff
-- cleanup of timers and listeners
+- timer and listener cleanup
 - heartbeat start / stop / timeout
 - browser offline / online transitions
-- invalid payload / parse errors
-- manual reconnect / manual close
+- invalid payload and parse errors
+- manual reconnect and manual close
 
 `WebSocket` and `EventSource` are tested through mocked browser APIs.
 
 ## Demo
 
-Live playground:
-
-- https://volkov85.github.io/react-realtime-hooks/
+- Live demo: https://volkov85.github.io/react-realtime-hooks/
+- Repository: https://github.com/volkov85/react-realtime-hooks
 
 Run the local playground:
 
@@ -396,78 +538,9 @@ Run the local playground:
 npm run demo
 ```
 
-The demo includes separate blocks for:
+## Contributing
 
-- `useOnlineStatus`
-- `useReconnect`
-- `useHeartbeat`
-- `useWebSocket`
-- `useEventSource`
-
-Notes:
-
-- `useWebSocket` and `useEventSource` are exposed as playground blocks with manual URL input.
-- Browser-only hooks still require real endpoints if you want to test transport connectivity in the hosted demo.
-
-## Development
-
-Available scripts:
-
-```bash
-npm run build
-npm run demo
-npm run demo:build
-npm run lint
-npm run typecheck
-npm run test
-npm run publint
-```
-
-## Changelog And Releases
-
-This repo uses Changesets for versioning, changelog generation, and npm publishing.
-
-### Local workflow
-
-Create a changeset for user-facing changes:
-
-```bash
-npm run changeset
-```
-
-Version packages locally:
-
-```bash
-npm run version-packages
-```
-
-Publish manually:
-
-```bash
-npm run release
-```
-
-### CI release workflow
-
-- Feature work lands in `main`
-- A Changesets release PR is created automatically
-- When that PR is merged, Changesets publishes to npm
-- Changelog entries are generated from the changeset summaries
-
-Required GitHub secrets:
-
-- `NPM_TOKEN`
-
-## CI
-
-Quality gate runs on pushes and pull requests:
-
-- `npm run typecheck`
-- `npm run lint`
-- `npm run test`
-- `npm run build`
-- `npm run demo:build`
-- `npm run publint`
+Development and release workflow live in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
