@@ -4,6 +4,8 @@ Typed React hooks for realtime client state: WebSocket, SSE, reconnect, heartbea
 
 `react-realtime-hooks` is built for apps that need transport state, retry strategy, and browser network signals without rewriting the same connection lifecycle in every component.
 
+Live demo: https://volkov85.github.io/react-realtime-hooks/
+
 ## Why This Package
 
 - Realtime hooks usually stop at "open a socket". This package also models reconnect flow, heartbeat flow, browser online state, and transport snapshots.
@@ -23,6 +25,7 @@ Typed React hooks for realtime client state: WebSocket, SSE, reconnect, heartbea
 - Reconnect/backoff helpers
 - Browser API mocks in tests
 - Demo app for manual verification
+- Public GitHub Pages playground
 
 ## Install
 
@@ -55,6 +58,11 @@ export const Notifications = () => {
   return <div>{socket.status}</div>;
 };
 ```
+
+## Links
+
+- Demo: https://volkov85.github.io/react-realtime-hooks/
+- Repository: https://github.com/volkov85/react-realtime-hooks
 
 ## Examples
 
@@ -378,6 +386,10 @@ The package includes behavior tests for:
 
 ## Demo
 
+Live playground:
+
+- https://volkov85.github.io/react-realtime-hooks/
+
 Run the local playground:
 
 ```bash
@@ -391,6 +403,11 @@ The demo includes separate blocks for:
 - `useHeartbeat`
 - `useWebSocket`
 - `useEventSource`
+
+Notes:
+
+- `useWebSocket` and `useEventSource` are exposed as playground blocks with manual URL input.
+- Browser-only hooks still require real endpoints if you want to test transport connectivity in the hosted demo.
 
 ## Development
 
