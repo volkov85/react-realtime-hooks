@@ -21,11 +21,47 @@ export const createConnectionStateSnapshot = (
     isSupported?: boolean;
     lastChangedAt?: number | null;
   } = {}
-): ConnectionStateSnapshot => ({
-  isClosed: isClosedStatus(status),
-  isConnected: isConnectedStatus(status),
-  isConnecting: isConnectingStatus(status),
-  isSupported: config.isSupported ?? true,
-  lastChangedAt: config.lastChangedAt ?? null,
-  status
-});
+): ConnectionStateSnapshot => {
+  const base = {
+    isSupported: config.isSupported ?? true,
+    lastChangedAt: config.lastChangedAt ?? null
+  };
+
+  switch (status) {
+    case "open":
+      return {
+        ...base,
+        isClosed: false,
+        isConnected: true,
+        isConnecting: false,
+        status
+      };
+    case "connecting":
+    case "reconnecting":
+      return {
+        ...base,
+        isClosed: false,
+        isConnected: false,
+        isConnecting: true,
+        status
+      };
+    case "closing":
+      return {
+        ...base,
+        isClosed: false,
+        isConnected: false,
+        isConnecting: false,
+        status
+      };
+    case "idle":
+    case "closed":
+    case "error":
+      return {
+        ...base,
+        isClosed: true,
+        isConnected: false,
+        isConnecting: false,
+        status
+      };
+  }
+};
