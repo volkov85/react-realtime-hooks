@@ -342,9 +342,15 @@ describe("useWebSocket", () => {
     expect(socket?.sent).toEqual(["ping"]);
   });
 
-  it("marks parse errors as error state", async () => {
+  it("closes the socket and stops reconnect after parse errors", () => {
+    vi.useFakeTimers();
+
     const { result } = renderHook(() =>
       useWebSocket<number>({
+        reconnect: {
+          initialDelayMs: 0,
+          jitterRatio: 0
+        },
         parseMessage: () => {
           throw new Error("invalid payload");
         },
@@ -358,16 +364,21 @@ describe("useWebSocket", () => {
       socket?.emitOpen();
     });
 
-    await waitFor(() => {
-      expect(result.current.status).toBe("open");
-    });
+    expect(result.current.status).toBe("open");
 
     act(() => {
       socket?.emitMessage("bad");
     });
 
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
     expect(result.current.status).toBe("error");
     expect(result.current.lastError).not.toBeNull();
+    expect(result.current.reconnectState?.status).toBe("stopped");
+    expect(socket?.closeCalls).toBe(1);
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 
   it("cleans up listeners and timers on unmount", async () => {

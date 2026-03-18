@@ -241,9 +241,15 @@ describe("useEventSource", () => {
     expect(result.current.reconnectState?.status).toBe("stopped");
   });
 
-  it("marks parse errors as error state", async () => {
+  it("closes the source and stops reconnect after parse errors", () => {
+    vi.useFakeTimers();
+
     const { result } = renderHook(() =>
       useEventSource<number>({
+        reconnect: {
+          initialDelayMs: 0,
+          jitterRatio: 0
+        },
         parseMessage: () => {
           throw new Error("invalid payload");
         },
@@ -257,16 +263,21 @@ describe("useEventSource", () => {
       source?.emitOpen();
     });
 
-    await waitFor(() => {
-      expect(result.current.status).toBe("open");
-    });
+    expect(result.current.status).toBe("open");
 
     act(() => {
       source?.emitMessage("bad");
     });
 
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
     expect(result.current.status).toBe("error");
     expect(result.current.lastError).not.toBeNull();
+    expect(result.current.reconnectState?.status).toBe("stopped");
+    expect(source?.closeCalls).toBe(1);
+    expect(MockEventSource.instances).toHaveLength(1);
   });
 
   it("cleans up listeners on unmount", async () => {
