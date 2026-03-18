@@ -91,6 +91,7 @@ export const useWebSocket: UseWebSocketHook = <
   const manualOpenRef = useRef(false);
   const skipCloseReconnectRef = useRef(false);
   const suppressReconnectRef = useRef(false);
+  const terminalErrorRef = useRef<Event | null>(null);
   const [openNonce, setOpenNonce] = useState(0);
   const [state, setState] = useState<WebSocketState<TIncoming>>(() =>
     createInitialState(connect ? "connecting" : "idle")
@@ -203,7 +204,9 @@ export const useWebSocket: UseWebSocketHook = <
 
   const handleOpen = useEffectEvent((event: Event, socket: WebSocket) => {
     manualCloseRef.current = false;
+    manualOpenRef.current = false;
     suppressReconnectRef.current = false;
+    terminalErrorRef.current = null;
     reconnect.markConnected();
     heartbeat.start();
 
@@ -232,11 +235,19 @@ export const useWebSocket: UseWebSocketHook = <
       options.onMessage?.(message, event);
     } catch {
       const parseError = new Event("error");
+      terminalErrorRef.current = parseError;
+      manualOpenRef.current = false;
+      skipCloseReconnectRef.current = true;
+      suppressReconnectRef.current = true;
+      reconnect.cancel();
+      heartbeat.stop();
       commitState((current) => ({
         ...current,
+        lastChangedAt: Date.now(),
         lastError: parseError,
         status: "error"
       }));
+      closeSocket(1003, "parse-error");
     }
   });
 
@@ -256,8 +267,24 @@ export const useWebSocket: UseWebSocketHook = <
     socketKeyRef.current = null;
     heartbeat.stop();
     updateBufferedAmount();
+    const terminalError = terminalErrorRef.current;
     const skipCloseReconnect = skipCloseReconnectRef.current;
     skipCloseReconnectRef.current = false;
+
+    if (terminalError !== null) {
+      suppressReconnectRef.current = false;
+
+      commitState((current) => ({
+        ...current,
+        lastChangedAt: Date.now(),
+        lastCloseEvent: event,
+        lastError: terminalError,
+        status: "error"
+      }));
+
+      options.onClose?.(event);
+      return;
+    }
 
     const shouldReconnect =
       !suppressReconnectRef.current &&
@@ -285,6 +312,7 @@ export const useWebSocket: UseWebSocketHook = <
     manualCloseRef.current = false;
     manualOpenRef.current = true;
     suppressReconnectRef.current = false;
+    terminalErrorRef.current = null;
     reconnect.cancel();
     setOpenNonce((current) => current + 1);
   };
@@ -294,6 +322,7 @@ export const useWebSocket: UseWebSocketHook = <
     manualOpenRef.current = true;
     skipCloseReconnectRef.current = true;
     suppressReconnectRef.current = true;
+    terminalErrorRef.current = null;
     heartbeat.stop();
     closeSocket();
     suppressReconnectRef.current = false;
@@ -304,6 +333,7 @@ export const useWebSocket: UseWebSocketHook = <
     manualCloseRef.current = true;
     manualOpenRef.current = false;
     suppressReconnectRef.current = true;
+    terminalErrorRef.current = null;
     reconnect.cancel();
     heartbeat.stop();
 
@@ -350,9 +380,10 @@ export const useWebSocket: UseWebSocketHook = <
     }
 
     const shouldConnect =
-      (connect && !manualCloseRef.current) ||
+      terminalErrorRef.current === null &&
+      ((connect && !manualCloseRef.current) ||
       manualOpenRef.current ||
-      reconnect.status === "running";
+      reconnect.status === "running");
     const nextSocketKey = `${resolvedUrl}::${protocolsDependency}::${options.binaryType ?? "blob"}`;
 
     if (!shouldConnect) {
@@ -364,7 +395,12 @@ export const useWebSocket: UseWebSocketHook = <
       socketKeyRef.current = null;
       commitState((current) => ({
         ...current,
-        status: manualCloseRef.current ? "closed" : "idle"
+        status:
+          terminalErrorRef.current !== null
+            ? "error"
+            : manualCloseRef.current
+              ? "closed"
+              : "idle"
       }));
       return;
     }
@@ -430,6 +466,7 @@ export const useWebSocket: UseWebSocketHook = <
   useEffect(() => () => {
     suppressReconnectRef.current = true;
     socketKeyRef.current = null;
+    terminalErrorRef.current = null;
 
     const socket = socketRef.current;
     socketRef.current = null;

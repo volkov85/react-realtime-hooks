@@ -70,6 +70,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
   const manualOpenRef = useRef(false);
   const skipErrorReconnectRef = useRef(false);
   const suppressReconnectRef = useRef(false);
+  const terminalErrorRef = useRef<Event | null>(null);
   const [openNonce, setOpenNonce] = useState(0);
   const [state, setState] = useState<EventSourceState<TMessage>>(() =>
     createInitialState(connect ? "connecting" : "idle")
@@ -117,7 +118,9 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
 
   const handleOpen = useEffectEvent((event: Event, source: EventSource) => {
     manualCloseRef.current = false;
+    manualOpenRef.current = false;
     suppressReconnectRef.current = false;
+    terminalErrorRef.current = null;
     reconnect.markConnected();
 
     commitState((current) => ({
@@ -149,8 +152,14 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
         options.onMessage?.(message, event);
       } catch {
         const parseError = new Event("error");
+        terminalErrorRef.current = parseError;
+        manualOpenRef.current = false;
+        suppressReconnectRef.current = true;
+        reconnect.cancel();
+        closeEventSource();
         commitState((current) => ({
           ...current,
+          lastChangedAt: Date.now(),
           lastError: parseError,
           status: "error"
         }));
@@ -159,6 +168,21 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
   );
 
   const handleError = useEffectEvent((event: Event, source: EventSource) => {
+    const terminalError = terminalErrorRef.current;
+
+    if (terminalError !== null) {
+      suppressReconnectRef.current = false;
+
+      commitState((current) => ({
+        ...current,
+        lastChangedAt: Date.now(),
+        lastError: terminalError,
+        status: "error"
+      }));
+
+      return;
+    }
+
     const skipErrorReconnect = skipErrorReconnectRef.current;
     skipErrorReconnectRef.current = false;
     const shouldReconnect =
@@ -200,6 +224,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     manualCloseRef.current = false;
     manualOpenRef.current = true;
     suppressReconnectRef.current = false;
+    terminalErrorRef.current = null;
     reconnect.cancel();
     setOpenNonce((current) => current + 1);
   };
@@ -209,6 +234,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     manualOpenRef.current = true;
     skipErrorReconnectRef.current = true;
     suppressReconnectRef.current = true;
+    terminalErrorRef.current = null;
     closeEventSource();
     suppressReconnectRef.current = false;
     reconnect.schedule("manual");
@@ -218,6 +244,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     manualCloseRef.current = true;
     manualOpenRef.current = false;
     suppressReconnectRef.current = true;
+    terminalErrorRef.current = null;
     reconnect.cancel();
     closeEventSource();
 
@@ -249,9 +276,10 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     }
 
     const shouldConnect =
-      (connect && !manualCloseRef.current) ||
+      terminalErrorRef.current === null &&
+      ((connect && !manualCloseRef.current) ||
       manualOpenRef.current ||
-      reconnect.status === "running";
+      reconnect.status === "running");
     const nextEventSourceKey = [
       resolvedUrl,
       options.withCredentials ? "credentials" : "anonymous",
@@ -267,7 +295,12 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
       eventSourceKeyRef.current = null;
       commitState((current) => ({
         ...current,
-        status: manualCloseRef.current ? "closed" : "idle"
+        status:
+          terminalErrorRef.current !== null
+            ? "error"
+            : manualCloseRef.current
+              ? "closed"
+              : "idle"
       }));
       return;
     }
@@ -352,6 +385,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
   useEffect(() => () => {
     suppressReconnectRef.current = true;
     eventSourceKeyRef.current = null;
+    terminalErrorRef.current = null;
 
     const source = eventSourceRef.current;
     eventSourceRef.current = null;

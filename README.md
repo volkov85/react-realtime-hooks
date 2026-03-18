@@ -507,7 +507,7 @@ export function NetworkIndicator() {
 
 - `useEventSource` is receive-only by design. SSE is not a bidirectional transport.
 - `useWebSocket` heartbeat support is client-side. You still define your own server ping/pong protocol.
-- If `parseMessage` throws, the hook moves into `error` and stores `lastError`.
+- If `parseMessage` throws, the hook closes the current transport, moves into `error`, stores `lastError`, and stops auto-reconnect until manual `open()` or `reconnect()`.
 - `connect: false` keeps the hook in `idle` until `open()` is called.
 - Manual `close()` is sticky. The hook stays closed until `open()` or `reconnect()` is called.
 - No transport polyfills are bundled. Provide your own runtime support where needed.
