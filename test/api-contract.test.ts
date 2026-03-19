@@ -4,10 +4,10 @@ import type {
   RealtimeConnectionStatus,
   UseEventSourceOptions,
   UseEventSourceResult,
-  UseHeartbeatOptions,
   UseOnlineStatusResult,
   UseReconnectOptions,
   UseReconnectResult,
+  UseWebSocketHeartbeatOptions,
   UseWebSocketOptions,
   UseWebSocketResult
 } from "../src";
@@ -35,7 +35,7 @@ describe("api contracts", () => {
     expectTypeOf<
       UseWebSocketOptions<string, { type: "ping" }>["heartbeat"]
     >().toEqualTypeOf<
-      false | UseHeartbeatOptions<{ type: "ping" }, string> | undefined
+      false | UseWebSocketHeartbeatOptions<{ type: "ping" }, string> | undefined
     >();
 
     expectTypeOf<UseWebSocketResult<string>["transport"]>().toEqualTypeOf<"websocket">();

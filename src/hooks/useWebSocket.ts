@@ -8,6 +8,8 @@ import { useReconnect } from "./useReconnect";
 import type { UseHeartbeatOptions } from "../types/useHeartbeat";
 import type {
   UseWebSocketHook,
+  WebSocketHeartbeatAction,
+  UseWebSocketHeartbeatOptions,
   UseWebSocketOptions,
   UseWebSocketResult
 } from "../types/useWebSocket";
@@ -71,8 +73,11 @@ const toProtocolsDependency = (protocols: string | string[] | undefined): string
 
 const toHeartbeatConfig = <TOutgoing, TIncoming>(
   heartbeat: UseWebSocketOptions<TIncoming, TOutgoing>["heartbeat"]
-): UseHeartbeatOptions<TOutgoing, TIncoming> | null =>
+): UseWebSocketHeartbeatOptions<TOutgoing, TIncoming> | null =>
   heartbeat === undefined || heartbeat === false ? null : heartbeat;
+
+const isSocketActive = (socket: WebSocket): boolean =>
+  socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING;
 
 export const useWebSocket: UseWebSocketHook = <
   TIncoming = unknown,
@@ -91,6 +96,10 @@ export const useWebSocket: UseWebSocketHook = <
   const manualOpenRef = useRef(false);
   const skipCloseReconnectRef = useRef(false);
   const suppressReconnectRef = useRef(false);
+  const pendingCloseActionRef = useRef<{
+    error: Event | null;
+    reconnectTrigger: "heartbeat-timeout" | "error" | null;
+  } | null>(null);
   const terminalErrorRef = useRef<Event | null>(null);
   const [openNonce, setOpenNonce] = useState(0);
   const [state, setState] = useState<WebSocketState<TIncoming>>(() =>
@@ -115,6 +124,8 @@ export const useWebSocket: UseWebSocketHook = <
   const heartbeatConfig = toHeartbeatConfig<TOutgoing, TIncoming>(
     options.heartbeat
   );
+  const defaultHeartbeatAction: WebSocketHeartbeatAction =
+    options.reconnect === false ? "close" : "reconnect";
   const heartbeatHookOptions: UseHeartbeatOptions<TOutgoing, TIncoming> =
     heartbeatConfig === null
       ? {
@@ -161,6 +172,33 @@ export const useWebSocket: UseWebSocketHook = <
     heartbeatHookOptions.onTimeout = heartbeatConfig.onTimeout;
   }
 
+  if (heartbeatConfig !== null) {
+    const onTimeout = heartbeatHookOptions.onTimeout;
+    heartbeatHookOptions.onTimeout = () => {
+      applyHeartbeatAction(
+        heartbeatConfig.timeoutAction ?? defaultHeartbeatAction,
+        new Event("heartbeat-timeout"),
+        "heartbeat-timeout"
+      );
+      onTimeout?.();
+    };
+
+    const onError = heartbeatConfig.onError;
+    heartbeatHookOptions.onError = (error) => {
+      const event =
+        error instanceof Event ? error : new Event("heartbeat-error");
+
+      applyHeartbeatAction(
+        heartbeatConfig.errorAction ??
+          heartbeatConfig.timeoutAction ??
+          defaultHeartbeatAction,
+        event,
+        "error"
+      );
+      onError?.(error);
+    };
+  }
+
   const heartbeat = useHeartbeat<TOutgoing, TIncoming>(
     heartbeatHookOptions
   );
@@ -185,10 +223,60 @@ export const useWebSocket: UseWebSocketHook = <
     socketRef.current = null;
     socketKeyRef.current = null;
 
-    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+    if (isSocketActive(socket)) {
       socket.close(code, reason);
     }
   });
+
+  const applyHeartbeatAction = useEffectEvent(
+    (
+      action: WebSocketHeartbeatAction,
+      error: Event,
+      reconnectTrigger: "heartbeat-timeout" | "error"
+    ) => {
+      heartbeat.stop();
+
+      if (action === "none") {
+        commitState((current) => ({
+          ...current,
+          lastChangedAt: Date.now(),
+          lastError: error
+        }));
+        return;
+      }
+
+      const shouldReconnect =
+        action === "reconnect" &&
+        reconnectEnabled &&
+        (options.shouldReconnect?.(error) ?? true);
+      manualOpenRef.current = false;
+      terminalErrorRef.current = shouldReconnect ? null : error;
+      const socket = socketRef.current;
+
+      if (socket === null || !isSocketActive(socket)) {
+        commitState((current) => ({
+          ...current,
+          lastChangedAt: Date.now(),
+          lastError: error,
+          status: shouldReconnect ? "reconnecting" : "error"
+        }));
+
+        if (shouldReconnect) {
+          reconnect.schedule(reconnectTrigger);
+        }
+
+        return;
+      }
+
+      pendingCloseActionRef.current = {
+        error,
+        reconnectTrigger: shouldReconnect ? reconnectTrigger : null
+      };
+      skipCloseReconnectRef.current = true;
+      suppressReconnectRef.current = true;
+      closeSocket();
+    }
+  );
 
   const parseMessage = useEffectEvent((event: MessageEvent<unknown>) => {
     const parser = options.parseMessage ?? defaultParseMessage<TIncoming>;
@@ -267,9 +355,32 @@ export const useWebSocket: UseWebSocketHook = <
     socketKeyRef.current = null;
     heartbeat.stop();
     updateBufferedAmount();
+    const pendingCloseAction = pendingCloseActionRef.current;
+    pendingCloseActionRef.current = null;
     const terminalError = terminalErrorRef.current;
     const skipCloseReconnect = skipCloseReconnectRef.current;
     skipCloseReconnectRef.current = false;
+
+    if (pendingCloseAction !== null) {
+      suppressReconnectRef.current = false;
+
+      commitState((current) => ({
+        ...current,
+        lastChangedAt: Date.now(),
+        lastCloseEvent: event,
+        lastError: pendingCloseAction.error ?? current.lastError,
+        status:
+          pendingCloseAction.reconnectTrigger === null ? "error" : "reconnecting"
+      }));
+
+      options.onClose?.(event);
+
+      if (pendingCloseAction.reconnectTrigger !== null) {
+        reconnect.schedule(pendingCloseAction.reconnectTrigger);
+      }
+
+      return;
+    }
 
     if (terminalError !== null) {
       suppressReconnectRef.current = false;
@@ -475,10 +586,7 @@ export const useWebSocket: UseWebSocketHook = <
       return;
     }
 
-    if (
-      socket.readyState === WebSocket.OPEN ||
-      socket.readyState === WebSocket.CONNECTING
-    ) {
+    if (isSocketActive(socket)) {
       socket.close();
     }
   }, []);

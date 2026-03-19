@@ -342,6 +342,105 @@ describe("useWebSocket", () => {
     expect(socket?.sent).toEqual(["ping"]);
   });
 
+  it("reconnects on heartbeat timeout by default", async () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useWebSocket<string, string>({
+        heartbeat: {
+          intervalMs: 100,
+          message: "ping",
+          timeoutMs: 50
+        },
+        reconnect: {
+          initialDelayMs: 0,
+          jitterRatio: 0
+        },
+        url: "ws://localhost:1234"
+      })
+    );
+
+    const socket = MockWebSocket.instances[0];
+
+    act(() => {
+      socket?.emitOpen();
+      vi.advanceTimersByTime(150);
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(socket?.closeCalls).toBe(1);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(result.current.status).toBe("reconnecting");
+    expect(result.current.lastError?.type).toBe("heartbeat-timeout");
+  });
+
+  it("moves to error on heartbeat timeout when reconnect is disabled", () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useWebSocket<string, string>({
+        heartbeat: {
+          intervalMs: 100,
+          message: "ping",
+          timeoutMs: 50
+        },
+        reconnect: false,
+        url: "ws://localhost:1234"
+      })
+    );
+
+    const socket = MockWebSocket.instances[0];
+
+    act(() => {
+      socket?.emitOpen();
+      vi.advanceTimersByTime(150);
+    });
+
+    expect(socket?.closeCalls).toBe(1);
+    expect(result.current.status).toBe("error");
+    expect(result.current.lastError?.type).toBe("heartbeat-timeout");
+  });
+
+  it("reconnects when the heartbeat beat throws", async () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useWebSocket<string, string>({
+        heartbeat: {
+          beat: () => {
+            throw new Error("beat failed");
+          },
+          intervalMs: 100,
+          timeoutMs: 50
+        },
+        reconnect: {
+          initialDelayMs: 0,
+          jitterRatio: 0
+        },
+        url: "ws://localhost:1234"
+      })
+    );
+
+    const socket = MockWebSocket.instances[0];
+
+    act(() => {
+      socket?.emitOpen();
+      vi.advanceTimersByTime(100);
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(socket?.closeCalls).toBe(1);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(result.current.status).toBe("reconnecting");
+    expect(result.current.lastError?.type).toBe("heartbeat-error");
+  });
+
   it("closes the socket and stops reconnect after parse errors", () => {
     vi.useFakeTimers();
 

@@ -33,6 +33,7 @@ export const useHeartbeat = <
   const startOnMount = options.startOnMount ?? true;
   const intervalRef = useRef(createManagedInterval());
   const timeoutRef = useRef(createManagedTimeout());
+  const generationRef = useRef(0);
   const [state, setState] = useState<HeartbeatState>(() =>
     createInitialState(enabled && startOnMount)
   );
@@ -71,9 +72,7 @@ export const useHeartbeat = <
     }, options.timeoutMs);
   });
 
-  const runBeat = useEffectEvent(() => {
-    const performedAt = Date.now();
-
+  const handleBeatSuccess = useEffectEvent((performedAt: number) => {
     commitState((current) => ({
       ...current,
       hasTimedOut: false,
@@ -82,8 +81,44 @@ export const useHeartbeat = <
 
     scheduleTimeout();
     options.onBeat?.();
+  });
 
-    void options.beat?.();
+  const handleBeatError = useEffectEvent((error: unknown) => {
+    timeoutRef.current.cancel();
+    options.onError?.(error);
+  });
+
+  const runBeat = useEffectEvent(() => {
+    const generation = generationRef.current;
+
+    const completeBeat = (result: void | boolean): void => {
+      if (generation !== generationRef.current || result === false) {
+        return;
+      }
+
+      handleBeatSuccess(Date.now());
+    };
+
+    const failBeat = (error: unknown): void => {
+      if (generation !== generationRef.current) {
+        return;
+      }
+
+      handleBeatError(error);
+    };
+
+    try {
+      const result = options.beat?.();
+
+      if (result !== null && typeof result === "object" && "then" in result) {
+        void Promise.resolve(result).then(completeBeat, failBeat);
+        return;
+      }
+
+      completeBeat(result);
+    } catch (error) {
+      failBeat(error);
+    }
   });
 
   const start = (): void => {
@@ -105,6 +140,7 @@ export const useHeartbeat = <
   };
 
   const stop = (): void => {
+    generationRef.current += 1;
     intervalRef.current.cancel();
     timeoutRef.current.cancel();
     commitState((current) => ({
@@ -166,6 +202,7 @@ export const useHeartbeat = <
   }, [enabled, options.intervalMs, startOnMount]);
 
   useEffect(() => () => {
+    generationRef.current += 1;
     intervalRef.current.cancel();
     timeoutRef.current.cancel();
   }, []);

@@ -11,6 +11,16 @@ import type {
 } from "./useHeartbeat";
 import type { UseReconnectOptions, UseReconnectResult } from "./useReconnect";
 
+export type WebSocketHeartbeatAction = "none" | "close" | "reconnect";
+
+export interface UseWebSocketHeartbeatOptions<
+  TOutgoing = unknown,
+  TIncoming = TOutgoing
+> extends UseHeartbeatOptions<TOutgoing, TIncoming> {
+  timeoutAction?: WebSocketHeartbeatAction;
+  errorAction?: WebSocketHeartbeatAction;
+}
+
 export interface UseWebSocketOptions<TIncoming = unknown, TOutgoing = TIncoming> {
   url: UrlProvider;
   protocols?: string | string[];
@@ -19,7 +29,7 @@ export interface UseWebSocketOptions<TIncoming = unknown, TOutgoing = TIncoming>
   parseMessage?: MessageParser<TIncoming>;
   serializeMessage?: MessageSerializer<TOutgoing>;
   reconnect?: false | UseReconnectOptions;
-  heartbeat?: false | UseHeartbeatOptions<TOutgoing, TIncoming>;
+  heartbeat?: false | UseWebSocketHeartbeatOptions<TOutgoing, TIncoming>;
   shouldReconnect?: (event: CloseEvent | Event | undefined) => boolean;
   onOpen?: (event: Event, socket: WebSocket) => void;
   onMessage?: (message: TIncoming, event: MessageEvent<unknown>) => void;
