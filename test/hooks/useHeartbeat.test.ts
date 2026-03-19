@@ -161,6 +161,62 @@ describe("useHeartbeat", () => {
     expect(onTimeout).toHaveBeenCalledTimes(1);
   });
 
+  it("does not record a beat when beat returns false", () => {
+    vi.useFakeTimers();
+
+    const onBeat = vi.fn();
+    const beat = vi.fn(() => false);
+    const { result } = renderHook(() =>
+      useHeartbeat({
+        beat,
+        intervalMs: 100,
+        onBeat,
+        startOnMount: false,
+        timeoutMs: 200
+      })
+    );
+
+    act(() => {
+      result.current.beat();
+      vi.advanceTimersByTime(250);
+    });
+
+    expect(beat).toHaveBeenCalledTimes(1);
+    expect(onBeat).not.toHaveBeenCalled();
+    expect(result.current.lastBeatAt).toBeNull();
+    expect(result.current.hasTimedOut).toBe(false);
+  });
+
+  it("reports rejected beat promises without timing out", async () => {
+    vi.useFakeTimers();
+
+    const onError = vi.fn();
+    const beat = vi.fn().mockRejectedValue(new Error("heartbeat failed"));
+    const { result } = renderHook(() =>
+      useHeartbeat({
+        beat,
+        intervalMs: 100,
+        onError,
+        startOnMount: false,
+        timeoutMs: 200
+      })
+    );
+
+    act(() => {
+      result.current.beat();
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      vi.advanceTimersByTime(250);
+    });
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(result.current.lastBeatAt).toBeNull();
+    expect(result.current.hasTimedOut).toBe(false);
+  });
+
   it("does nothing when disabled", () => {
     vi.useFakeTimers();
 

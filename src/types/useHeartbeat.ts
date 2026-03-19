@@ -12,6 +12,7 @@ export interface UseHeartbeatOptions<TOutgoing = unknown, TIncoming = TOutgoing>
   startOnMount?: boolean;
   onBeat?: () => void;
   onTimeout?: () => void;
+  onError?: (error: unknown) => void;
 }
 
 export interface UseHeartbeatResult<TIncoming = unknown> {

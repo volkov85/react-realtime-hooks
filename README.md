@@ -350,7 +350,7 @@ export function NetworkIndicator() {
 | `parseMessage`     | `(event) => TIncoming`         | raw `event.data`           | Incoming parser                    |
 | `serializeMessage` | `(message) => ...`             | JSON/string passthrough    | Outgoing serializer                |
 | `reconnect`        | `false \| UseReconnectOptions` | enabled                    | Reconnect configuration            |
-| `heartbeat`        | `false \| UseHeartbeatOptions` | disabled unless configured | Heartbeat configuration            |
+| `heartbeat`        | `false \| UseWebSocketHeartbeatOptions` | disabled unless configured | Heartbeat configuration            |
 | `shouldReconnect`  | `(event) => boolean`           | `true`                     | Reconnect gate on close            |
 | `onOpen`           | `(event, socket) => void`      | `undefined`                | Open callback                      |
 | `onMessage`        | `(message, event) => void`     | `undefined`                | Message callback                   |
@@ -374,6 +374,10 @@ export function NetworkIndicator() {
 | `close`            | `(code?, reason?) => void`   | Manual close                                                               |
 | `reconnect`        | `() => void`                 | Manual reconnect                                                           |
 | `send`             | `(message) => boolean`       | Sends an outgoing payload                                                  |
+
+When you configure `useWebSocket` heartbeat, you can also set `timeoutAction` and
+`errorAction` to `"none"`, `"close"`, or `"reconnect"`. The default is
+`"reconnect"` when reconnect is enabled and `"close"` otherwise.
 
 </details>
 
@@ -464,6 +468,7 @@ export function NetworkIndicator() {
 | `startOnMount` | `boolean`                                           | `true`      | Starts immediately                          |
 | `onBeat`       | `() => void`                                        | `undefined` | Called on every beat                        |
 | `onTimeout`    | `() => void`                                        | `undefined` | Called on timeout                           |
+| `onError`      | `(error) => void`                                   | `undefined` | Called when `beat()` throws or rejects      |
 
 ### Result
 
