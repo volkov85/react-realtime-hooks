@@ -1,5 +1,11 @@
 # react-realtime-hooks
 
+## 1.0.3
+
+### Patch Changes
+
+- b221139: Improve heartbeat failure handling in useHeartbeat/useWebSocket by surfacing beat errors and adding timeout-driven close/reconnect behavior.
+
 ## 1.0.2
 
 ### Patch Changes
