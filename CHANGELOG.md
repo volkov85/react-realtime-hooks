@@ -1,5 +1,11 @@
 # react-realtime-hooks
 
+## 1.0.4
+
+### Patch Changes
+
+- 19add81: Narrow the React peer dependency to React 19, align the README with the supported version, and tighten realtime error handling. This update makes onError fire consistently for transport, heartbeat, and parse failures, updates lastChangedAt on native WebSocket errors, and clears heartbeat timing state on stop so reconnects start with fresh metrics.
+
 ## 1.0.3
 
 ### Patch Changes
