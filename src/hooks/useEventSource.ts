@@ -157,6 +157,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
         suppressReconnectRef.current = true;
         reconnect.cancel();
         closeEventSource();
+        options.onError?.(parseError);
         commitState((current) => ({
           ...current,
           lastChangedAt: Date.now(),

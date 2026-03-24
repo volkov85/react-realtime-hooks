@@ -235,6 +235,7 @@ export const useWebSocket: UseWebSocketHook = <
       reconnectTrigger: "heartbeat-timeout" | "error"
     ) => {
       heartbeat.stop();
+      options.onError?.(error);
 
       if (action === "none") {
         commitState((current) => ({
@@ -329,6 +330,7 @@ export const useWebSocket: UseWebSocketHook = <
       suppressReconnectRef.current = true;
       reconnect.cancel();
       heartbeat.stop();
+      options.onError?.(parseError);
       commitState((current) => ({
         ...current,
         lastChangedAt: Date.now(),
@@ -343,6 +345,7 @@ export const useWebSocket: UseWebSocketHook = <
     heartbeat.stop();
     commitState((current) => ({
       ...current,
+      lastChangedAt: Date.now(),
       lastError: event,
       status: "error"
     }));

@@ -243,9 +243,11 @@ describe("useEventSource", () => {
 
   it("closes the source and stops reconnect after parse errors", () => {
     vi.useFakeTimers();
+    const onError = vi.fn();
 
     const { result } = renderHook(() =>
       useEventSource<number>({
+        onError,
         reconnect: {
           initialDelayMs: 0,
           jitterRatio: 0
@@ -278,6 +280,9 @@ describe("useEventSource", () => {
     expect(result.current.reconnectState?.status).toBe("stopped");
     expect(source?.closeCalls).toBe(1);
     expect(MockEventSource.instances).toHaveLength(1);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "error" })
+    );
   });
 
   it("cleans up listeners on unmount", async () => {

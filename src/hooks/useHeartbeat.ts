@@ -143,11 +143,7 @@ export const useHeartbeat = <
     generationRef.current += 1;
     intervalRef.current.cancel();
     timeoutRef.current.cancel();
-    commitState((current) => ({
-      ...current,
-      hasTimedOut: false,
-      isRunning: false
-    }));
+    commitState(createInitialState(false));
   };
 
   const beat = (): void => {

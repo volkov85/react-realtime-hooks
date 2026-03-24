@@ -344,6 +344,7 @@ describe("useWebSocket", () => {
 
   it("reconnects on heartbeat timeout by default", async () => {
     vi.useFakeTimers();
+    const onError = vi.fn();
 
     const { result } = renderHook(() =>
       useWebSocket<string, string>({
@@ -352,6 +353,7 @@ describe("useWebSocket", () => {
           message: "ping",
           timeoutMs: 50
         },
+        onError,
         reconnect: {
           initialDelayMs: 0,
           jitterRatio: 0
@@ -375,6 +377,9 @@ describe("useWebSocket", () => {
     expect(MockWebSocket.instances).toHaveLength(2);
     expect(result.current.status).toBe("reconnecting");
     expect(result.current.lastError?.type).toBe("heartbeat-timeout");
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "heartbeat-timeout" })
+    );
   });
 
   it("moves to error on heartbeat timeout when reconnect is disabled", () => {
@@ -443,9 +448,11 @@ describe("useWebSocket", () => {
 
   it("closes the socket and stops reconnect after parse errors", () => {
     vi.useFakeTimers();
+    const onError = vi.fn();
 
     const { result } = renderHook(() =>
       useWebSocket<number>({
+        onError,
         reconnect: {
           initialDelayMs: 0,
           jitterRatio: 0
@@ -478,6 +485,42 @@ describe("useWebSocket", () => {
     expect(result.current.reconnectState?.status).toBe("stopped");
     expect(socket?.closeCalls).toBe(1);
     expect(MockWebSocket.instances).toHaveLength(1);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "error" })
+    );
+  });
+
+  it("updates lastChangedAt when the socket emits an error", async () => {
+    const onError = vi.fn();
+    const { result } = renderHook(() =>
+      useWebSocket({
+        onError,
+        url: "ws://localhost:1234"
+      })
+    );
+
+    const socket = MockWebSocket.instances[0];
+
+    act(() => {
+      socket?.emitOpen();
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe("open");
+    });
+
+    const openedAt = result.current.lastChangedAt;
+
+    act(() => {
+      socket?.emitError();
+    });
+
+    expect(result.current.status).toBe("error");
+    expect(result.current.lastChangedAt).not.toBeNull();
+    expect(result.current.lastChangedAt).not.toBe(openedAt);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "error" })
+    );
   });
 
   it("cleans up listeners and timers on unmount", async () => {
