@@ -238,4 +238,36 @@ describe("useHeartbeat", () => {
     expect(result.current.isRunning).toBe(false);
     expect(beat).not.toHaveBeenCalled();
   });
+
+  it("clears heartbeat metrics when stopped", () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useHeartbeat<string, string>({
+        intervalMs: 1_000,
+        startOnMount: false
+      })
+    );
+
+    act(() => {
+      result.current.start();
+      result.current.beat();
+      vi.advanceTimersByTime(250);
+      result.current.notifyAck("pong");
+    });
+
+    expect(result.current.lastBeatAt).not.toBeNull();
+    expect(result.current.lastAckAt).not.toBeNull();
+    expect(result.current.latencyMs).toBe(250);
+
+    act(() => {
+      result.current.stop();
+    });
+
+    expect(result.current.isRunning).toBe(false);
+    expect(result.current.hasTimedOut).toBe(false);
+    expect(result.current.lastBeatAt).toBeNull();
+    expect(result.current.lastAckAt).toBeNull();
+    expect(result.current.latencyMs).toBeNull();
+  });
 });

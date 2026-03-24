@@ -5,7 +5,7 @@
 [![Demo](https://img.shields.io/github/actions/workflow/status/volkov85/react-realtime-hooks/pages.yml?branch=main&label=demo)](https://github.com/volkov85/react-realtime-hooks/actions/workflows/pages.yml)
 [![license](https://img.shields.io/npm/l/react-realtime-hooks)](https://github.com/volkov85/react-realtime-hooks/blob/main/LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-typed-3178c6)](https://www.typescriptlang.org/)
-[![react](https://img.shields.io/badge/react-18.3%2B%20%7C%2019-149eca)](https://www.npmjs.com/package/react)
+[![react](https://img.shields.io/badge/react-19.x-149eca)](https://www.npmjs.com/package/react)
 
 Production-ready React hooks for WebSocket and SSE with auto-reconnect, heartbeat, typed connection state, and browser network awareness.
 
@@ -60,7 +60,7 @@ npm install react-realtime-hooks
 
 Peer dependency:
 
-- `react@^18.3.0 || ^19.0.0`
+- `react@^19.0.0`
 
 ## How It Feels
 
@@ -354,7 +354,7 @@ export function NetworkIndicator() {
 | `shouldReconnect`  | `(event) => boolean`           | `true`                     | Reconnect gate on close            |
 | `onOpen`           | `(event, socket) => void`      | `undefined`                | Open callback                      |
 | `onMessage`        | `(message, event) => void`     | `undefined`                | Message callback                   |
-| `onError`          | `(event) => void`              | `undefined`                | Error callback                     |
+| `onError`          | `(event) => void`              | `undefined`                | Called for transport, heartbeat, and parse errors |
 | `onClose`          | `(event) => void`              | `undefined`                | Close callback                     |
 
 ### Result
@@ -397,7 +397,7 @@ When you configure `useWebSocket` heartbeat, you can also set `timeoutAction` an
 | `shouldReconnect` | `(event) => boolean`                  | `true`           | Reconnect gate on error             |
 | `onOpen`          | `(event, source) => void`             | `undefined`      | Open callback                       |
 | `onMessage`       | `(message, event) => void`            | `undefined`      | Default `message` callback          |
-| `onError`         | `(event) => void`                     | `undefined`      | Error callback                      |
+| `onError`         | `(event) => void`                     | `undefined`      | Called for transport and parse errors |
 | `onEvent`         | `(eventName, message, event) => void` | `undefined`      | Named event callback                |
 
 ### Result
@@ -512,7 +512,8 @@ When you configure `useWebSocket` heartbeat, you can also set `timeoutAction` an
 
 - `useEventSource` is receive-only by design. SSE is not a bidirectional transport.
 - `useWebSocket` heartbeat support is client-side. You still define your own server ping/pong protocol.
-- If `parseMessage` throws, the hook closes the current transport, moves into `error`, stores `lastError`, and stops auto-reconnect until manual `open()` or `reconnect()`.
+- If `parseMessage` throws, the hook calls `onError`, closes the current transport, moves into `error`, stores `lastError`, and stops auto-reconnect until manual `open()` or `reconnect()`.
+- Stopping heartbeat clears timeout state and the previous beat/ack timestamps so a new session starts with fresh metrics.
 - `connect: false` keeps the hook in `idle` until `open()` is called.
 - Manual `close()` is sticky. The hook stays closed until `open()` or `reconnect()` is called.
 - No transport polyfills are bundled. Provide your own runtime support where needed.
