@@ -7,9 +7,9 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-typed-3178c6)](https://www.typescriptlang.org/)
 [![react](https://img.shields.io/badge/react-19.x-149eca)](https://www.npmjs.com/package/react)
 
-Production-ready React hooks for WebSocket and SSE with auto-reconnect, heartbeat, typed connection state, and browser network awareness.
+Production-ready React hooks for WebSocket and SSE with auto-reconnect, heartbeat, typed connection state, and browser network awareness including page visibility.
 
-`react-realtime-hooks` is for apps that need more than "open a socket and hope for the best". It gives you composable hooks for transport lifecycle, retry strategy, heartbeat, and online status, so your UI can react to realtime state without rebuilding the same connection logic in every screen.
+`react-realtime-hooks` is for apps that need more than "open a socket and hope for the best". It gives you composable hooks for transport lifecycle, retry strategy, heartbeat, online status, and page visibility, so your UI can react to realtime state without rebuilding the same connection logic in every screen.
 
 Live demo: https://volkov85.github.io/react-realtime-hooks/
 
@@ -23,7 +23,7 @@ Real apps need:
 - reconnect strategy with caps, jitter, and manual control
 - heartbeat and timeout tracking
 - clean SSR behavior
-- browser network awareness
+- browser network and page visibility awareness
 - typed message parsing and sending
 
 `react-realtime-hooks` packages those concerns into small hooks that compose cleanly in React.
@@ -46,7 +46,7 @@ Real apps need:
 | Connection state  | You model it yourself              | Built-in status model you can render directly    |
 | Reconnect flow    | Manual timers and teardown         | `useReconnect` with backoff, jitter, and limits  |
 | Heartbeat         | Custom ping/pong loop              | `heartbeat` support with timeout and latency     |
-| Network awareness | Separate browser event wiring      | `useOnlineStatus` for online/offline state       |
+| Browser awareness | Separate browser event wiring      | `useOnlineStatus` and `usePageVisibility` for browser state |
 | SSR safety        | Easy to break during render        | Browser-only behavior stays out of server render |
 | UI ergonomics     | Event handlers and refs everywhere | Hook result already shaped for product UI        |
 
@@ -65,7 +65,11 @@ Peer dependency:
 ## How It Feels
 
 ```tsx
-import { useOnlineStatus, useWebSocket } from "react-realtime-hooks";
+import {
+  useOnlineStatus,
+  usePageVisibility,
+  useWebSocket
+} from "react-realtime-hooks";
 
 type IncomingMessage =
   | { type: "notification"; text: string }
@@ -75,6 +79,7 @@ type OutgoingMessage = { type: "ack"; id: string } | { type: "ping" };
 
 export function NotificationsPanel() {
   const network = useOnlineStatus();
+  const page = usePageVisibility();
   const socket = useWebSocket<IncomingMessage, OutgoingMessage>({
     url: "ws://localhost:8080/notifications",
     parseMessage: (event) => JSON.parse(String(event.data)) as IncomingMessage,
@@ -93,8 +98,8 @@ export function NotificationsPanel() {
   return (
     <section>
       <p>
-        Network: {network.isOnline ? "online" : "offline"} | Transport:{" "}
-        {socket.status}
+        Page: {page.isVisible ? "visible" : "hidden"} | Network:{" "}
+        {network.isOnline ? "online" : "offline"} | Transport: {socket.status}
       </p>
 
       {socket.status === "reconnecting" && (
@@ -146,7 +151,7 @@ Browser APIs
   WebSocket / EventSource / navigator.onLine
 
 Core hooks
-  useReconnect / useHeartbeat / useOnlineStatus
+  useReconnect / useHeartbeat / useOnlineStatus / usePageVisibility
 
 Transport hooks
   useWebSocket / useEventSource
@@ -205,6 +210,7 @@ This library already models those edges in a reusable way.
 | `useReconnect`    | Reusable retry and backoff logic     | `schedule()`, `cancel()`, `reset()`, `attempt`, `status`                     |
 | `useHeartbeat`    | Liveness checks and timeout tracking | `start()`, `stop()`, `beat()`, `notifyAck()`, `latencyMs`                    |
 | `useOnlineStatus` | Browser online/offline state         | `isOnline`, `isSupported`, transition timestamps                             |
+| `usePageVisibility` | Browser tab/page visibility state  | `isVisible`, `visibilityState`, `isSupported`, transition timestamps         |
 
 ## Transport Examples
 
@@ -334,6 +340,23 @@ export function NetworkIndicator() {
 }
 ```
 
+### `usePageVisibility`
+
+```tsx
+import { usePageVisibility } from "react-realtime-hooks";
+
+export function AttentionAwareBadge() {
+  const page = usePageVisibility({
+    trackTransitions: true,
+  });
+
+  return (
+    <span>
+      {page.isVisible ? "Active tab" : "Background tab"} ({page.visibilityState})
+    </span>
+  );
+}
+```
 ## API Reference
 
 <details>
@@ -508,6 +531,28 @@ When you configure `useWebSocket` heartbeat, you can also set `timeoutAction` an
 
 </details>
 
+<details>
+<summary><strong>usePageVisibility</strong></summary>
+
+### Options
+
+| Option             | Type      | Default | Description                                                 |
+| ------------------ | --------- | ------- | ----------------------------------------------------------- |
+| `initialVisible`   | `boolean` | `true`  | Fallback value when the Visibility API is unavailable       |
+| `trackTransitions` | `boolean` | `true`  | Tracks `lastChangedAt`, `becameVisibleAt`, `becameHiddenAt` |
+
+### Result
+
+| Field             | Type                                 | Description                                      |
+| ----------------- | ------------------------------------ | ------------------------------------------------ |
+| `isVisible`       | `boolean`                            | Whether the current page is visible              |
+| `visibilityState` | `DocumentVisibilityState \| "visible"` | Current browser visibility state                 |
+| `isSupported`     | `boolean`                            | Whether `document.visibilityState` is available  |
+| `lastChangedAt`   | `number \| null`                    | Timestamp of the last visibility transition      |
+| `becameVisibleAt` | `number \| null`                    | Timestamp of the last visible transition         |
+| `becameHiddenAt`  | `number \| null`                    | Timestamp of the last hidden transition          |
+
+</details>
 ## Limitations And Edge Cases
 
 - `useEventSource` is receive-only by design. SSE is not a bidirectional transport.
@@ -527,7 +572,7 @@ The package includes behavior tests for:
 - exponential backoff
 - timer and listener cleanup
 - heartbeat start / stop / timeout
-- browser offline / online transitions
+- browser offline / online and page visibility transitions
 - invalid payload and parse errors
 - manual reconnect and manual close
 
@@ -551,3 +596,7 @@ Development and release workflow live in [CONTRIBUTING.md](./CONTRIBUTING.md).
 ## License
 
 MIT
+
+
+
+
