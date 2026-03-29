@@ -5,6 +5,7 @@ import type {
   UseEventSourceOptions,
   UseEventSourceResult,
   UseOnlineStatusResult,
+  UsePageVisibilityResult,
   UseReconnectOptions,
   UseReconnectResult,
   UseWebSocketHeartbeatOptions,
@@ -44,6 +45,10 @@ describe("api contracts", () => {
     >();
     expectTypeOf<UseEventSourceResult<number>["transport"]>().toEqualTypeOf<"eventsource">();
     expectTypeOf<UseOnlineStatusResult["isOnline"]>().toEqualTypeOf<boolean>();
+    expectTypeOf<UsePageVisibilityResult["isVisible"]>().toEqualTypeOf<boolean>();
+    expectTypeOf<UsePageVisibilityResult["visibilityState"]>().toMatchTypeOf<
+      DocumentVisibilityState | "visible"
+    >();
   });
 
   it("narrows connection snapshots by status", () => {
