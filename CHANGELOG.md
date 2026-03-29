@@ -1,5 +1,11 @@
 # react-realtime-hooks
 
+## 1.1.0
+
+### Minor Changes
+
+- bac739a: Add usePageVisibility hook with transition timestamps and public exports
+
 ## 1.0.4
 
 ### Patch Changes
