@@ -1,7 +1,10 @@
 import { describe, expectTypeOf, it } from "vitest";
 
 import type {
+  ConnectionGateReason,
   RealtimeConnectionStatus,
+  UseConnectionGateOptions,
+  UseConnectionGateResult,
   UseEventSourceOptions,
   UseEventSourceResult,
   UseOnlineStatusResult,
@@ -24,6 +27,9 @@ describe("api contracts", () => {
       | "reconnecting"
       | "error"
     >();
+    expectTypeOf<ConnectionGateReason>().toEqualTypeOf<
+      "ready" | "manual" | "offline" | "hidden"
+    >();
 
     expectTypeOf<UseReconnectOptions["maxAttempts"]>().toEqualTypeOf<
       number | null | undefined
@@ -44,6 +50,13 @@ describe("api contracts", () => {
       readonly string[] | undefined
     >();
     expectTypeOf<UseEventSourceResult<number>["transport"]>().toEqualTypeOf<"eventsource">();
+    expectTypeOf<UseConnectionGateOptions["hiddenGraceMs"]>().toEqualTypeOf<
+      number | undefined
+    >();
+    expectTypeOf<UseConnectionGateResult["connect"]>().toEqualTypeOf<boolean>();
+    expectTypeOf<UseConnectionGateResult["reason"]>().toEqualTypeOf<
+      "ready" | "manual" | "offline" | "hidden"
+    >();
     expectTypeOf<UseOnlineStatusResult["isOnline"]>().toEqualTypeOf<boolean>();
     expectTypeOf<UsePageVisibilityResult["isVisible"]>().toEqualTypeOf<boolean>();
     expectTypeOf<UsePageVisibilityResult["visibilityState"]>().toMatchTypeOf<

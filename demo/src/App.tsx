@@ -7,6 +7,7 @@ import {
   useReconnect,
   useWebSocket
 } from "../../src";
+import { ConnectionGateSection } from "./ConnectionGateSection";
 import { PageVisibilitySection } from "./PageVisibilitySection";
 import type { UseHeartbeatOptions } from "../../src";
 
@@ -231,9 +232,9 @@ export const App = () => {
         <h1>Realtime hooks playground</h1>
         <p className="lede">
           The demo is split into dedicated blocks, one block per hook. You can
-          test browser online state, page visibility, reconnect scheduling,
-          heartbeat/ack flow, live WebSocket transport, and EventSource/SSE
-          behavior independently.
+          test browser online state, page visibility, connection gating,
+          reconnect scheduling, heartbeat/ack flow, live WebSocket transport,
+          and EventSource/SSE behavior independently.
         </p>
       </section>
 
@@ -323,6 +324,8 @@ export const App = () => {
       </section>
 
       <PageVisibilitySection />
+
+      <ConnectionGateSection />
 
       <section className="hook-section">
         <div className="section-heading">
@@ -952,4 +955,7 @@ export const App = () => {
     </main>
   );
 };
+
+
+
 
