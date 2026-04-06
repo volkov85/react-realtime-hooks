@@ -7,9 +7,9 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-typed-3178c6)](https://www.typescriptlang.org/)
 [![react](https://img.shields.io/badge/react-19.x-149eca)](https://www.npmjs.com/package/react)
 
-Production-ready React hooks for WebSocket and SSE with auto-reconnect, heartbeat, typed connection state, and browser network awareness including page visibility.
+Production-ready React hooks for WebSocket and SSE with auto-reconnect, heartbeat, typed connection state, and browser network awareness including page visibility and connection gating.
 
-`react-realtime-hooks` is for apps that need more than "open a socket and hope for the best". It gives you composable hooks for transport lifecycle, retry strategy, heartbeat, online status, and page visibility, so your UI can react to realtime state without rebuilding the same connection logic in every screen.
+`react-realtime-hooks` is for apps that need more than "open a socket and hope for the best". It gives you composable hooks for transport lifecycle, retry strategy, heartbeat, online status, page visibility, and connection gating, so your UI can react to realtime state without rebuilding the same connection logic in every screen.
 
 Live demo: https://volkov85.github.io/react-realtime-hooks/
 
@@ -24,6 +24,7 @@ Real apps need:
 - heartbeat and timeout tracking
 - clean SSR behavior
 - browser network and page visibility awareness
+- environment-aware connection gating for offline state and background tabs
 - typed message parsing and sending
 
 `react-realtime-hooks` packages those concerns into small hooks that compose cleanly in React.
@@ -33,6 +34,7 @@ Real apps need:
 - `useWebSocket` and `useEventSource` return state you can render, not just transport instances.
 - Built-in reconnect flow with exponential backoff, jitter, attempt limits, and manual restart.
 - Heartbeat support with ack matching, timeout detection, and latency measurement.
+- `useConnectionGate` turns online and visibility signals into a single `connect` flag for transport hooks.
 - Discriminated connection snapshots: `idle`, `connecting`, `open`, `reconnecting`, `closing`, `closed`, `error`.
 - First-class TypeScript support with generic message types and custom parsers/serializers.
 - SSR-safe by default. No browser-only globals are touched during server render.
@@ -46,7 +48,7 @@ Real apps need:
 | Connection state  | You model it yourself              | Built-in status model you can render directly    |
 | Reconnect flow    | Manual timers and teardown         | `useReconnect` with backoff, jitter, and limits  |
 | Heartbeat         | Custom ping/pong loop              | `heartbeat` support with timeout and latency     |
-| Browser awareness | Separate browser event wiring      | `useOnlineStatus` and `usePageVisibility` for browser state |
+| Browser awareness | Separate browser event wiring      | `useOnlineStatus`, `usePageVisibility`, and `useConnectionGate` for browser-aware state |
 | SSR safety        | Easy to break during render        | Browser-only behavior stays out of server render |
 | UI ergonomics     | Event handlers and refs everywhere | Hook result already shaped for product UI        |
 
@@ -151,7 +153,7 @@ Browser APIs
   WebSocket / EventSource / navigator.onLine
 
 Core hooks
-  useReconnect / useHeartbeat / useOnlineStatus / usePageVisibility
+  useReconnect / useHeartbeat / useOnlineStatus / usePageVisibility / useConnectionGate
 
 Transport hooks
   useWebSocket / useEventSource
@@ -209,6 +211,7 @@ This library already models those edges in a reusable way.
 | `useEventSource`  | Server-Sent Events streams           | `status`, `eventSource`, `lastMessage`, `lastEventName`, `reconnect()`       |
 | `useReconnect`    | Reusable retry and backoff logic     | `schedule()`, `cancel()`, `reset()`, `attempt`, `status`                     |
 | `useHeartbeat`    | Liveness checks and timeout tracking | `start()`, `stop()`, `beat()`, `notifyAck()`, `latencyMs`                    |
+| `useConnectionGate` | Browser-aware transport gating     | `connect`, `reason`, `isBlocked`, gate transition timestamps                 |
 | `useOnlineStatus` | Browser online/offline state         | `isOnline`, `isSupported`, transition timestamps                             |
 | `usePageVisibility` | Browser tab/page visibility state  | `isVisible`, `visibilityState`, `isSupported`, transition timestamps         |
 
@@ -354,6 +357,33 @@ export function AttentionAwareBadge() {
     <span>
       {page.isVisible ? "Active tab" : "Background tab"} ({page.visibilityState})
     </span>
+  );
+}
+```
+### `useConnectionGate`
+
+```tsx
+import { useConnectionGate, useWebSocket } from "react-realtime-hooks";
+
+export function GatedNotifications() {
+  const gate = useConnectionGate({
+    requireOnline: true,
+    requireVisible: true,
+    hiddenGraceMs: 30_000,
+  });
+  const socket = useWebSocket({
+    connect: gate.connect,
+    reconnect: {
+      initialDelayMs: 1_000,
+      maxAttempts: null,
+    },
+    url: "ws://localhost:8080/notifications",
+  });
+
+  return (
+    <div>
+      Gate: {gate.reason} | Transport: {socket.status}
+    </div>
   );
 }
 ```
@@ -510,6 +540,42 @@ When you configure `useWebSocket` heartbeat, you can also set `timeoutAction` an
 </details>
 
 <details>
+<summary><strong>useConnectionGate</strong></summary>
+
+### Options
+
+| Option             | Type      | Default | Description                                                        |
+| ------------------ | --------- | ------- | ------------------------------------------------------------------ |
+| `enabled`          | `boolean` | `true`  | Master on/off switch for the gate                                  |
+| `requireOnline`    | `boolean` | `true`  | Blocks `connect` when the browser reports offline                  |
+| `requireVisible`   | `boolean` | `false` | Blocks `connect` when the page is hidden                           |
+| `hiddenGraceMs`    | `number`  | `0`     | Delay before hidden pages are blocked                              |
+| `initialOnline`    | `boolean` | `true`  | Fallback value when `navigator.onLine` is unavailable              |
+| `initialVisible`   | `boolean` | `true`  | Fallback value when the Visibility API is unavailable              |
+| `trackTransitions` | `boolean` | `true`  | Tracks `lastChangedAt`, `becameReadyAt`, and `becameBlockedAt`     |
+
+### Result
+
+| Field                      | Type                                       | Description                                                |
+| -------------------------- | ------------------------------------------ | ---------------------------------------------------------- |
+| `connect`                  | `boolean`                                  | Flag to pass into `useWebSocket` or `useEventSource`       |
+| `isBlocked`                | `boolean`                                  | Whether the gate is currently blocking connection          |
+| `reason`                   | `"ready" \| "manual" \| "offline" \| "hidden"` | Current gate reason                                        |
+| `isWaitingForVisibleGrace` | `boolean`                                  | `true` while a hidden-tab grace window is still active     |
+| `isOnline`                 | `boolean`                                  | Current browser online state                               |
+| `isOnlineSupported`        | `boolean`                                  | Whether `navigator.onLine` is available                    |
+| `isVisible`                | `boolean`                                  | Whether the current page is visible                        |
+| `isVisibilitySupported`    | `boolean`                                  | Whether `document.visibilityState` is available            |
+| `visibilityState`          | `DocumentVisibilityState \| "visible"`   | Current browser visibility state                           |
+| `lastChangedAt`            | `number \| null`                          | Timestamp of the last gate state change                    |
+| `becameReadyAt`            | `number \| null`                          | Timestamp of the last transition into `reason === "ready"` |
+| `becameBlockedAt`          | `number \| null`                          | Timestamp of the last transition into a blocked state      |
+
+`reason` priority is deterministic: `manual` overrides `offline`, and `offline` overrides `hidden`.
+That keeps the gate predictable when multiple blockers apply at once.
+
+</details>
+<details>
 <summary><strong>useOnlineStatus</strong></summary>
 
 ### Options
@@ -596,6 +662,7 @@ Development and release workflow live in [CONTRIBUTING.md](./CONTRIBUTING.md).
 ## License
 
 MIT
+
 
 
 

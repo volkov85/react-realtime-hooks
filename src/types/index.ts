@@ -1,4 +1,5 @@
 export type * from "./common";
+export type * from "./useConnectionGate";
 export type * from "./useEventSource";
 export type * from "./useHeartbeat";
 export type * from "./useOnlineStatus";
