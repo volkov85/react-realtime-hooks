@@ -1,5 +1,11 @@
 # react-realtime-hooks
 
+## 1.2.0
+
+### Minor Changes
+
+- 25d9e30: Add useConnectionGate, a new core hook that combines browser online state and page visibility into a single connect flag for useWebSocket and useEventSource. It supports hidden-tab grace periods, exposes a deterministic gate reason, and includes transition timestamps for ready/blocked state changes. README and demo were updated to cover the new hook.
+
 ## 1.1.0
 
 ### Minor Changes
