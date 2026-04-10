@@ -1,5 +1,11 @@
 # react-realtime-hooks
 
+## 1.2.1
+
+### Patch Changes
+
+- ffc144a: Ignore stale WebSocket events from replaced connections to prevent old sockets from corrupting the current hook state during reconnects or transport reconfiguration.
+
 ## 1.2.0
 
 ### Minor Changes
