@@ -245,6 +245,40 @@ describe("useWebSocket", () => {
     expect(result.current.status).toBe("reconnecting");
   });
 
+  it("ignores stale events from the previous socket during manual reconnect", async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+
+    const { result } = renderHook(() =>
+      useWebSocket({
+        onError,
+        reconnect: {
+          initialDelayMs: 0,
+          jitterRatio: 0
+        },
+        url: "ws://localhost:1234"
+      })
+    );
+
+    const firstSocket = MockWebSocket.instances[0];
+
+    act(() => {
+      firstSocket?.emitOpen();
+      result.current.reconnect();
+      firstSocket?.emitError();
+    });
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(result.current.lastError).toBeNull();
+    expect(result.current.status).toBe("reconnecting");
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+  });
+
   it("supports manual close without reconnecting", async () => {
     const { result } = renderHook(() =>
       useWebSocket({

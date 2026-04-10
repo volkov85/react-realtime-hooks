@@ -92,6 +92,9 @@ export const useWebSocket: UseWebSocketHook = <
 
   const socketRef = useRef<WebSocket | null>(null);
   const socketKeyRef = useRef<string | null>(null);
+  const activeSocketEpochRef = useRef<number | null>(null);
+  const closingSocketEpochRef = useRef<number | null>(null);
+  const nextSocketEpochRef = useRef(0);
   const manualCloseRef = useRef(false);
   const manualOpenRef = useRef(false);
   const skipCloseReconnectRef = useRef(false);
@@ -213,20 +216,42 @@ export const useWebSocket: UseWebSocketHook = <
     setState(resolved);
   };
 
-  const closeSocket = useEffectEvent((code?: number, reason?: string) => {
-    const socket = socketRef.current;
-
-    if (socket === null) {
-      return;
-    }
-
-    socketRef.current = null;
-    socketKeyRef.current = null;
-
-    if (isSocketActive(socket)) {
-      socket.close(code, reason);
-    }
+  const isActiveSocketEvent = useEffectEvent((socketEpoch: number) => {
+    return activeSocketEpochRef.current === socketEpoch;
   });
+
+  const shouldHandleSocketClose = useEffectEvent((socketEpoch: number) => {
+    return (
+      activeSocketEpochRef.current === socketEpoch ||
+      closingSocketEpochRef.current === socketEpoch
+    );
+  });
+
+  const closeSocket = useEffectEvent(
+    (
+      config: {
+        code?: number | undefined;
+        reason?: string | undefined;
+        trackClose?: boolean;
+      } = {}
+    ) => {
+      const socket = socketRef.current;
+      const socketEpoch = activeSocketEpochRef.current;
+
+      if (socket === null || socketEpoch === null) {
+        return;
+      }
+
+      socketRef.current = null;
+      socketKeyRef.current = null;
+      activeSocketEpochRef.current = null;
+      closingSocketEpochRef.current = config.trackClose ? socketEpoch : null;
+
+      if (isSocketActive(socket)) {
+        socket.close(config.code, config.reason);
+      }
+    }
+  );
 
   const applyHeartbeatAction = useEffectEvent(
     (
@@ -275,7 +300,7 @@ export const useWebSocket: UseWebSocketHook = <
       };
       skipCloseReconnectRef.current = true;
       suppressReconnectRef.current = true;
-      closeSocket();
+      closeSocket({ trackClose: true });
     }
   );
 
@@ -337,11 +362,19 @@ export const useWebSocket: UseWebSocketHook = <
         lastError: parseError,
         status: "error"
       }));
-      closeSocket(1003, "parse-error");
+      closeSocket({
+        code: 1003,
+        reason: "parse-error",
+        trackClose: true
+      });
     }
   });
 
-  const handleError = useEffectEvent((event: Event) => {
+  const handleError = useEffectEvent((event: Event, socketEpoch: number) => {
+    if (!isActiveSocketEvent(socketEpoch)) {
+      return;
+    }
+
     heartbeat.stop();
     commitState((current) => ({
       ...current,
@@ -353,9 +386,21 @@ export const useWebSocket: UseWebSocketHook = <
     options.onError?.(event);
   });
 
-  const handleClose = useEffectEvent((event: CloseEvent) => {
-    socketRef.current = null;
-    socketKeyRef.current = null;
+  const handleClose = useEffectEvent((event: CloseEvent, socketEpoch: number) => {
+    if (!shouldHandleSocketClose(socketEpoch)) {
+      return;
+    }
+
+    if (activeSocketEpochRef.current === socketEpoch) {
+      socketRef.current = null;
+      socketKeyRef.current = null;
+      activeSocketEpochRef.current = null;
+    }
+
+    if (closingSocketEpochRef.current === socketEpoch) {
+      closingSocketEpochRef.current = null;
+    }
+
     heartbeat.stop();
     updateBufferedAmount();
     const pendingCloseAction = pendingCloseActionRef.current;
@@ -457,7 +502,11 @@ export const useWebSocket: UseWebSocketHook = <
       status: "closing"
     }));
 
-    closeSocket(code, reason);
+    closeSocket({
+      code,
+      reason,
+      trackClose: true
+    });
   };
 
   const send = (message: TOutgoing): boolean => {
@@ -529,8 +578,12 @@ export const useWebSocket: UseWebSocketHook = <
     }
 
     const socket = new WebSocket(resolvedUrl, options.protocols);
+    const socketEpoch = nextSocketEpochRef.current + 1;
     socketRef.current = socket;
     socketKeyRef.current = nextSocketKey;
+    activeSocketEpochRef.current = socketEpoch;
+    closingSocketEpochRef.current = null;
+    nextSocketEpochRef.current = socketEpoch;
     socket.binaryType = options.binaryType ?? "blob";
 
     commitState((current) => ({
@@ -544,16 +597,24 @@ export const useWebSocket: UseWebSocketHook = <
     }));
 
     const handleSocketOpen = (event: Event): void => {
+      if (!isActiveSocketEvent(socketEpoch)) {
+        return;
+      }
+
       handleOpen(event, socket);
     };
     const handleSocketMessage = (event: MessageEvent<unknown>): void => {
+      if (!isActiveSocketEvent(socketEpoch)) {
+        return;
+      }
+
       handleMessage(event);
     };
     const handleSocketError = (event: Event): void => {
-      handleError(event);
+      handleError(event, socketEpoch);
     };
     const handleSocketClose = (event: CloseEvent): void => {
-      handleClose(event);
+      handleClose(event, socketEpoch);
     };
 
     socket.addEventListener("open", handleSocketOpen);
@@ -580,6 +641,8 @@ export const useWebSocket: UseWebSocketHook = <
   useEffect(() => () => {
     suppressReconnectRef.current = true;
     socketKeyRef.current = null;
+    activeSocketEpochRef.current = null;
+    closingSocketEpochRef.current = null;
     terminalErrorRef.current = null;
 
     const socket = socketRef.current;
