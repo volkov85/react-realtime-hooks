@@ -1,4 +1,5 @@
 import js from "@eslint/js";
+import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
@@ -21,6 +22,9 @@ export default tseslint.config(
   })),
   {
     files: ["**/*.ts", "**/*.tsx"],
+    plugins: {
+      "react-hooks": reactHooks
+    },
     languageOptions: {
       parserOptions: {
         project: "./tsconfig.json",
@@ -38,7 +42,9 @@ export default tseslint.config(
         {
           "checksVoidReturn": false
         }
-      ]
+      ],
+      "react-hooks/exhaustive-deps": "warn",
+      "react-hooks/rules-of-hooks": "error"
     }
   }
 );

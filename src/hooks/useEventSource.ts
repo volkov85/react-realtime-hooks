@@ -1,9 +1,11 @@
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { createConnectionStateSnapshot } from "../core/connection-state";
+import { RealtimeErrorEvent } from "../core/errors";
 import { isEventSourceSupported } from "../core/env";
 import { resolveUrlProvider } from "../core/url";
 import { useReconnect } from "./useReconnect";
+import { useStableCallback } from "./useStableCallback";
 import type {
   UseEventSourceHook,
   UseEventSourceOptions,
@@ -34,14 +36,6 @@ const defaultParseMessage = <TMessage,>(
   event: MessageEvent<string>
 ): TMessage => event.data as TMessage;
 
-const toEventsDependency = (events: readonly string[] | undefined): string => {
-  if (events === undefined || events.length === 0) {
-    return "";
-  }
-
-  return [...new Set(events)].sort().join("|");
-};
-
 const normalizeNamedEvents = (
   events: readonly string[] | undefined
 ): string[] => {
@@ -49,8 +43,16 @@ const normalizeNamedEvents = (
     return [];
   }
 
-  return [...new Set(events)].filter((eventName) => eventName !== "message");
+  return [...new Set(events)]
+    .filter((eventName) => eventName !== "message")
+    .sort();
 };
+
+const toEventsDependency = (events: readonly string[] | undefined): string =>
+  JSON.stringify(normalizeNamedEvents(events));
+
+const parseEventsDependency = (eventsDependency: string): string[] =>
+  JSON.parse(eventsDependency) as string[];
 
 export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
   options: UseEventSourceOptions<TMessage>
@@ -60,12 +62,14 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
   const resolvedUrl = useMemo(() => resolveUrlProvider(options.url), [options.url]);
   const eventsDependency = toEventsDependency(options.events);
   const namedEvents = useMemo(
-    () => normalizeNamedEvents(options.events),
+    () => parseEventsDependency(eventsDependency),
     [eventsDependency]
   );
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const eventSourceKeyRef = useRef<string | null>(null);
+  const activeEventSourceEpochRef = useRef<number | null>(null);
+  const nextEventSourceEpochRef = useRef(0);
   const manualCloseRef = useRef(false);
   const manualOpenRef = useRef(false);
   const skipErrorReconnectRef = useRef(false);
@@ -89,7 +93,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
         }
   );
 
-  const commitState = (
+  const commitState = useStableCallback((
     next:
       | EventSourceState<TMessage>
       | ((current: EventSourceState<TMessage>) => EventSourceState<TMessage>)
@@ -97,9 +101,9 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     const resolved = typeof next === "function" ? next(stateRef.current) : next;
     stateRef.current = resolved;
     setState(resolved);
-  };
+  });
 
-  const closeEventSource = useEffectEvent(() => {
+  const closeEventSource = useStableCallback(() => {
     const source = eventSourceRef.current;
 
     if (source === null) {
@@ -108,15 +112,20 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
 
     eventSourceRef.current = null;
     eventSourceKeyRef.current = null;
+    activeEventSourceEpochRef.current = null;
     source.close();
   });
 
-  const parseMessage = useEffectEvent((event: MessageEvent<string>) => {
+  const isActiveEventSourceEvent = useStableCallback((sourceEpoch: number) => {
+    return activeEventSourceEpochRef.current === sourceEpoch;
+  });
+
+  const parseMessage = useStableCallback((event: MessageEvent<string>) => {
     const parser = options.parseMessage ?? defaultParseMessage<TMessage>;
     return parser(event);
   });
 
-  const handleOpen = useEffectEvent((event: Event, source: EventSource) => {
+  const handleOpen = useStableCallback((event: Event, source: EventSource) => {
     manualCloseRef.current = false;
     manualOpenRef.current = false;
     suppressReconnectRef.current = false;
@@ -132,7 +141,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     options.onOpen?.(event, source);
   });
 
-  const commitParsedMessage = useEffectEvent(
+  const commitParsedMessage = useStableCallback(
     (eventName: string, event: MessageEvent<string>, isNamedEvent: boolean) => {
       try {
         const message = parseMessage(event);
@@ -150,8 +159,11 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
         }
 
         options.onMessage?.(message, event);
-      } catch {
-        const parseError = new Event("error");
+      } catch (error) {
+        const parseError = new RealtimeErrorEvent("error", {
+          cause: error,
+          kind: "parse-error"
+        });
         terminalErrorRef.current = parseError;
         manualOpenRef.current = false;
         suppressReconnectRef.current = true;
@@ -168,7 +180,15 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     }
   );
 
-  const handleError = useEffectEvent((event: Event, source: EventSource) => {
+  const handleError = useStableCallback((
+    event: Event,
+    source: EventSource,
+    sourceEpoch: number
+  ) => {
+    if (!isActiveEventSourceEvent(sourceEpoch)) {
+      return;
+    }
+
     const terminalError = terminalErrorRef.current;
 
     if (terminalError !== null) {
@@ -192,18 +212,11 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
       reconnectEnabled &&
       (options.shouldReconnect?.(event) ?? true);
 
-    const readyState = source.readyState;
-
     commitState((current) => ({
       ...current,
       lastChangedAt: Date.now(),
       lastError: event,
-      status:
-        readyState === EventSource.OPEN
-          ? "open"
-          : shouldReconnect
-            ? "reconnecting"
-            : "closed"
+      status: shouldReconnect ? "reconnecting" : "closed"
     }));
 
     options.onError?.(event);
@@ -214,23 +227,20 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
       return;
     }
 
-    if (readyState === EventSource.CLOSED) {
-      eventSourceRef.current = null;
-      eventSourceKeyRef.current = null;
-      reconnect.schedule("error");
-    }
+    closeEventSource();
+    reconnect.schedule("error");
   });
 
-  const open = (): void => {
+  const open = useStableCallback((): void => {
     manualCloseRef.current = false;
     manualOpenRef.current = true;
     suppressReconnectRef.current = false;
     terminalErrorRef.current = null;
     reconnect.cancel();
     setOpenNonce((current) => current + 1);
-  };
+  });
 
-  const reconnectNow = (): void => {
+  const reconnectNow = useStableCallback((): void => {
     manualCloseRef.current = false;
     manualOpenRef.current = true;
     skipErrorReconnectRef.current = true;
@@ -239,9 +249,9 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     closeEventSource();
     suppressReconnectRef.current = false;
     reconnect.schedule("manual");
-  };
+  });
 
-  const close = (): void => {
+  const close = useStableCallback((): void => {
     manualCloseRef.current = true;
     manualOpenRef.current = false;
     suppressReconnectRef.current = true;
@@ -254,7 +264,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
       lastChangedAt: Date.now(),
       status: "closed"
     }));
-  };
+  });
 
   useEffect(() => {
     if (!supported) {
@@ -278,9 +288,9 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
 
     const shouldConnect =
       terminalErrorRef.current === null &&
-      ((connect && !manualCloseRef.current) ||
-      manualOpenRef.current ||
-      reconnect.status === "running");
+      (reconnect.status === "running" ||
+      (reconnect.status !== "scheduled" &&
+        ((connect && !manualCloseRef.current) || manualOpenRef.current)));
     const nextEventSourceKey = [
       resolvedUrl,
       options.withCredentials ? "credentials" : "anonymous",
@@ -321,9 +331,12 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     const source = new EventSource(resolvedUrl, {
       withCredentials: options.withCredentials ?? false
     });
+    const sourceEpoch = nextEventSourceEpochRef.current + 1;
 
     eventSourceRef.current = source;
     eventSourceKeyRef.current = nextEventSourceKey;
+    activeEventSourceEpochRef.current = sourceEpoch;
+    nextEventSourceEpochRef.current = sourceEpoch;
 
     commitState((current) => ({
       ...current,
@@ -335,9 +348,17 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     }));
 
     const handleSourceOpen = (event: Event): void => {
+      if (!isActiveEventSourceEvent(sourceEpoch)) {
+        return;
+      }
+
       handleOpen(event, source);
     };
     const handleSourceMessage = (event: Event): void => {
+      if (!isActiveEventSourceEvent(sourceEpoch)) {
+        return;
+      }
+
       commitParsedMessage("message", event as MessageEvent<string>, false);
     };
     const namedEventHandlers = new Map<
@@ -345,7 +366,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
       (event: Event) => void
     >();
     const handleSourceError = (event: Event): void => {
-      handleError(event, source);
+      handleError(event, source, sourceEpoch);
     };
 
     source.addEventListener("open", handleSourceOpen);
@@ -353,6 +374,10 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
 
     for (const eventName of namedEvents) {
       const handler = (event: Event): void => {
+        if (!isActiveEventSourceEvent(sourceEpoch)) {
+          return;
+        }
+
         commitParsedMessage(eventName, event as MessageEvent<string>, true);
       };
 
@@ -373,8 +398,14 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
       source.removeEventListener("error", handleSourceError);
     };
   }, [
+    closeEventSource,
+    commitParsedMessage,
+    commitState,
     connect,
     eventsDependency,
+    handleError,
+    handleOpen,
+    isActiveEventSourceEvent,
     namedEvents,
     openNonce,
     options.withCredentials,
@@ -386,6 +417,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
   useEffect(() => () => {
     suppressReconnectRef.current = true;
     eventSourceKeyRef.current = null;
+    activeEventSourceEpochRef.current = null;
     terminalErrorRef.current = null;
 
     const source = eventSourceRef.current;

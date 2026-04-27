@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useWebSocket } from "../../src";
+import { RealtimeErrorEvent, useWebSocket } from "../../src";
 
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
@@ -181,6 +181,53 @@ describe("useWebSocket", () => {
     });
 
     expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it("distinguishes protocol arrays that would collide with joined keys", () => {
+    const { rerender } = renderHook(
+      ({ protocols }: { protocols: string[] }) =>
+        useWebSocket({
+          protocols,
+          url: "ws://localhost:1234"
+        }),
+      {
+        initialProps: {
+          protocols: ["a|b", "c"]
+        }
+      }
+    );
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(MockWebSocket.instances[0]?.protocols).toEqual(["a|b", "c"]);
+
+    rerender({
+      protocols: ["a", "b|c"]
+    });
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(MockWebSocket.instances[1]?.protocols).toEqual(["a", "b|c"]);
+  });
+
+  it("keeps imperative methods stable across renders", () => {
+    const { result, rerender } = renderHook(() =>
+      useWebSocket({
+        url: "ws://localhost:1234"
+      })
+    );
+
+    const methods = {
+      close: result.current.close,
+      open: result.current.open,
+      reconnect: result.current.reconnect,
+      send: result.current.send
+    };
+
+    rerender();
+
+    expect(result.current.close).toBe(methods.close);
+    expect(result.current.open).toBe(methods.open);
+    expect(result.current.reconnect).toBe(methods.reconnect);
+    expect(result.current.send).toBe(methods.send);
   });
 
   it("schedules reconnect after close", async () => {
@@ -410,7 +457,11 @@ describe("useWebSocket", () => {
     expect(socket?.closeCalls).toBe(1);
     expect(MockWebSocket.instances).toHaveLength(2);
     expect(result.current.status).toBe("reconnecting");
+    expect(result.current.lastError).toBeInstanceOf(RealtimeErrorEvent);
     expect(result.current.lastError?.type).toBe("heartbeat-timeout");
+    expect((result.current.lastError as RealtimeErrorEvent).kind).toBe(
+      "heartbeat-timeout"
+    );
     expect(onError).toHaveBeenCalledWith(
       expect.objectContaining({ type: "heartbeat-timeout" })
     );
@@ -440,17 +491,22 @@ describe("useWebSocket", () => {
 
     expect(socket?.closeCalls).toBe(1);
     expect(result.current.status).toBe("error");
+    expect(result.current.lastError).toBeInstanceOf(RealtimeErrorEvent);
     expect(result.current.lastError?.type).toBe("heartbeat-timeout");
+    expect((result.current.lastError as RealtimeErrorEvent).kind).toBe(
+      "heartbeat-timeout"
+    );
   });
 
   it("reconnects when the heartbeat beat throws", async () => {
     vi.useFakeTimers();
+    const heartbeatCause = new Error("beat failed");
 
     const { result } = renderHook(() =>
       useWebSocket<string, string>({
         heartbeat: {
           beat: () => {
-            throw new Error("beat failed");
+            throw heartbeatCause;
           },
           intervalMs: 100,
           timeoutMs: 50
@@ -477,12 +533,20 @@ describe("useWebSocket", () => {
     expect(socket?.closeCalls).toBe(1);
     expect(MockWebSocket.instances).toHaveLength(2);
     expect(result.current.status).toBe("reconnecting");
+    expect(result.current.lastError).toBeInstanceOf(RealtimeErrorEvent);
     expect(result.current.lastError?.type).toBe("heartbeat-error");
+    expect((result.current.lastError as RealtimeErrorEvent).kind).toBe(
+      "heartbeat-error"
+    );
+    expect((result.current.lastError as RealtimeErrorEvent).cause).toBe(
+      heartbeatCause
+    );
   });
 
   it("closes the socket and stops reconnect after parse errors", () => {
     vi.useFakeTimers();
     const onError = vi.fn();
+    const parseCause = new Error("invalid payload");
 
     const { result } = renderHook(() =>
       useWebSocket<number>({
@@ -492,7 +556,7 @@ describe("useWebSocket", () => {
           jitterRatio: 0
         },
         parseMessage: () => {
-          throw new Error("invalid payload");
+          throw parseCause;
         },
         url: "ws://localhost:1234"
       })
@@ -515,12 +579,22 @@ describe("useWebSocket", () => {
     });
 
     expect(result.current.status).toBe("error");
-    expect(result.current.lastError).not.toBeNull();
+    expect(result.current.lastError).toBeInstanceOf(RealtimeErrorEvent);
+    expect((result.current.lastError as RealtimeErrorEvent).kind).toBe(
+      "parse-error"
+    );
+    expect((result.current.lastError as RealtimeErrorEvent).cause).toBe(
+      parseCause
+    );
     expect(result.current.reconnectState?.status).toBe("stopped");
     expect(socket?.closeCalls).toBe(1);
     expect(MockWebSocket.instances).toHaveLength(1);
     expect(onError).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "error" })
+      expect.objectContaining({
+        cause: parseCause,
+        kind: "parse-error",
+        type: "error"
+      })
     );
   });
 
