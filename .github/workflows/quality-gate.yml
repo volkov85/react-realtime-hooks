@@ -17,9 +17,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        react-version:
-          - 19.2.0
-          - 19.2.4
+        include:
+          - react-version: 18.3.1
+            types-react-version: 18.3.12
+            types-react-dom-version: 18.3.5
+          - react-version: 19.0.0
+            types-react-version: 19.0.0
+            types-react-dom-version: 19.0.0
+          - react-version: 19.2.4
+            types-react-version: 19.2.14
+            types-react-dom-version: 19.2.3
 
     steps:
       - name: Checkout
@@ -35,7 +42,12 @@ jobs:
         run: npm ci
 
       - name: Use React ${{ matrix.react-version }}
-        run: npm install --no-save --package-lock=false react@${{ matrix.react-version }} react-dom@${{ matrix.react-version }}
+        run: |
+          npm install --no-save --package-lock=false \
+            react@${{ matrix.react-version }} \
+            react-dom@${{ matrix.react-version }} \
+            @types/react@${{ matrix.types-react-version }} \
+            @types/react-dom@${{ matrix.types-react-dom-version }}
 
       - name: Typecheck
         run: npm run typecheck
