@@ -1,9 +1,10 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   createManagedInterval,
   createManagedTimeout
 } from "../core/timers";
+import { useStableCallback } from "./useStableCallback";
 import type {
   UseHeartbeatOptions,
   UseHeartbeatHook,
@@ -53,7 +54,7 @@ export const useHeartbeat = <
     setState(resolved);
   };
 
-  const handleTimeout = useEffectEvent(() => {
+  const handleTimeout = useStableCallback(() => {
     commitState((current) => ({
       ...current,
       hasTimedOut: true
@@ -61,7 +62,7 @@ export const useHeartbeat = <
     options.onTimeout?.();
   });
 
-  const scheduleTimeout = useEffectEvent(() => {
+  const scheduleTimeout = useStableCallback(() => {
     if (options.timeoutMs === undefined) {
       timeoutRef.current.cancel();
       return;
@@ -72,7 +73,7 @@ export const useHeartbeat = <
     }, options.timeoutMs);
   });
 
-  const handleBeatSuccess = useEffectEvent((performedAt: number) => {
+  const handleBeatSuccess = useStableCallback((performedAt: number) => {
     commitState((current) => ({
       ...current,
       hasTimedOut: false,
@@ -83,12 +84,12 @@ export const useHeartbeat = <
     options.onBeat?.();
   });
 
-  const handleBeatError = useEffectEvent((error: unknown) => {
+  const handleBeatError = useStableCallback((error: unknown) => {
     timeoutRef.current.cancel();
     options.onError?.(error);
   });
 
-  const runBeat = useEffectEvent(() => {
+  const runBeat = useStableCallback(() => {
     const generation = generationRef.current;
 
     const completeBeat = (result: void | boolean): void => {
@@ -121,7 +122,7 @@ export const useHeartbeat = <
     }
   });
 
-  const start = (): void => {
+  const start = useStableCallback((): void => {
     if (!enabled) {
       return;
     }
@@ -137,24 +138,24 @@ export const useHeartbeat = <
       hasTimedOut: false,
       isRunning: true
     }));
-  };
+  });
 
-  const stop = (): void => {
+  const stop = useStableCallback((): void => {
     generationRef.current += 1;
     intervalRef.current.cancel();
     timeoutRef.current.cancel();
     commitState(createInitialState(false));
-  };
+  });
 
-  const beat = (): void => {
+  const beat = useStableCallback((): void => {
     if (!enabled) {
       return;
     }
 
     runBeat();
-  };
+  });
 
-  const notifyAck = (message: TIncoming): boolean => {
+  const notifyAck = useStableCallback((message: TIncoming): boolean => {
     if (stateRef.current.lastBeatAt === null) {
       return false;
     }
@@ -180,7 +181,7 @@ export const useHeartbeat = <
     }));
 
     return true;
-  };
+  });
 
   useEffect(() => {
     if (!enabled) {
@@ -195,7 +196,7 @@ export const useHeartbeat = <
 
     stop();
     return undefined;
-  }, [enabled, options.intervalMs, startOnMount]);
+  }, [enabled, options.intervalMs, start, startOnMount, stop]);
 
   useEffect(() => () => {
     generationRef.current += 1;

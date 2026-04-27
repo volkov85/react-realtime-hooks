@@ -1,16 +1,11 @@
-import {
-  startTransition,
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState
-} from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 
 import {
   createReconnectAttempt,
   normalizeReconnectOptions
 } from "../core/reconnect";
 import { createManagedTimeout } from "../core/timers";
+import { useStableCallback } from "./useStableCallback";
 import type {
   ReconnectAttempt,
   ReconnectTrigger,
@@ -57,7 +52,7 @@ export const useReconnect: UseReconnectHook = (options = {}) => {
     });
   };
 
-  const runAttempt = useEffectEvent((attempt: number) => {
+  const runAttempt = useStableCallback((attempt: number) => {
     commitState({
       attempt,
       nextDelayMs: null,
@@ -65,15 +60,15 @@ export const useReconnect: UseReconnectHook = (options = {}) => {
     });
   });
 
-  const emitSchedule = useEffectEvent((attempt: ReconnectAttempt) => {
+  const emitSchedule = useStableCallback((attempt: ReconnectAttempt) => {
     normalizedOptions.onSchedule?.(attempt);
   });
 
-  const emitCancel = useEffectEvent(() => {
+  const emitCancel = useStableCallback(() => {
     normalizedOptions.onCancel?.();
   });
 
-  const emitReset = useEffectEvent(() => {
+  const emitReset = useStableCallback(() => {
     normalizedOptions.onReset?.();
   });
 
@@ -102,7 +97,7 @@ export const useReconnect: UseReconnectHook = (options = {}) => {
     timeoutRef.current.cancel();
   }, []);
 
-  const schedule = (trigger: ReconnectTrigger = "manual"): void => {
+  const schedule = useStableCallback((trigger: ReconnectTrigger = "manual"): void => {
     const current = stateRef.current;
     const nextAttempt = current.attempt + 1;
     const attempt = createReconnectAttempt(
@@ -135,9 +130,9 @@ export const useReconnect: UseReconnectHook = (options = {}) => {
     });
 
     emitSchedule(attempt);
-  };
+  });
 
-  const cancel = (): void => {
+  const cancel = useStableCallback((): void => {
     const current = stateRef.current;
     const shouldEmitCancel =
       timeoutRef.current.isActive() ||
@@ -154,16 +149,16 @@ export const useReconnect: UseReconnectHook = (options = {}) => {
     if (shouldEmitCancel) {
       emitCancel();
     }
-  };
+  });
 
-  const reset = (): void => {
+  const reset = useStableCallback((): void => {
     timeoutRef.current.cancel();
     lastDelayRef.current = null;
     commitState(createInitialState(normalizedOptions.enabled));
     emitReset();
-  };
+  });
 
-  const markConnected = (): void => {
+  const markConnected = useStableCallback((): void => {
     timeoutRef.current.cancel();
 
     if (normalizedOptions.resetOnSuccess) {
@@ -178,7 +173,7 @@ export const useReconnect: UseReconnectHook = (options = {}) => {
       nextDelayMs: null,
       status: normalizedOptions.enabled ? "idle" : "stopped"
     }));
-  };
+  });
 
   return {
     attempt: state.attempt,

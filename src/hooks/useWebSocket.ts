@@ -1,10 +1,12 @@
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { createConnectionStateSnapshot } from "../core/connection-state";
+import { RealtimeErrorEvent } from "../core/errors";
 import { isWebSocketSupported } from "../core/env";
 import { resolveUrlProvider } from "../core/url";
 import { useHeartbeat } from "./useHeartbeat";
 import { useReconnect } from "./useReconnect";
+import { useStableCallback } from "./useStableCallback";
 import type { UseHeartbeatOptions } from "../types/useHeartbeat";
 import type {
   UseWebSocketHook,
@@ -68,8 +70,15 @@ const toProtocolsDependency = (protocols: string | string[] | undefined): string
     return "";
   }
 
-  return Array.isArray(protocols) ? protocols.join("|") : protocols;
+  return JSON.stringify(protocols);
 };
+
+const parseProtocolsDependency = (
+  protocolsDependency: string
+): string | string[] | undefined =>
+  protocolsDependency === ""
+    ? undefined
+    : JSON.parse(protocolsDependency) as string | string[];
 
 const toHeartbeatConfig = <TOutgoing, TIncoming>(
   heartbeat: UseWebSocketOptions<TIncoming, TOutgoing>["heartbeat"]
@@ -89,6 +98,10 @@ export const useWebSocket: UseWebSocketHook = <
   const supported = isWebSocketSupported();
   const resolvedUrl = useMemo(() => resolveUrlProvider(options.url), [options.url]);
   const protocolsDependency = toProtocolsDependency(options.protocols);
+  const protocols = useMemo(
+    () => parseProtocolsDependency(protocolsDependency),
+    [protocolsDependency]
+  );
 
   const socketRef = useRef<WebSocket | null>(null);
   const socketKeyRef = useRef<string | null>(null);
@@ -180,7 +193,9 @@ export const useWebSocket: UseWebSocketHook = <
     heartbeatHookOptions.onTimeout = () => {
       applyHeartbeatAction(
         heartbeatConfig.timeoutAction ?? defaultHeartbeatAction,
-        new Event("heartbeat-timeout"),
+        new RealtimeErrorEvent("heartbeat-timeout", {
+          kind: "heartbeat-timeout"
+        }),
         "heartbeat-timeout"
       );
       onTimeout?.();
@@ -188,8 +203,10 @@ export const useWebSocket: UseWebSocketHook = <
 
     const onError = heartbeatConfig.onError;
     heartbeatHookOptions.onError = (error) => {
-      const event =
-        error instanceof Event ? error : new Event("heartbeat-error");
+      const event = new RealtimeErrorEvent("heartbeat-error", {
+        cause: error,
+        kind: "heartbeat-error"
+      });
 
       applyHeartbeatAction(
         heartbeatConfig.errorAction ??
@@ -206,7 +223,7 @@ export const useWebSocket: UseWebSocketHook = <
     heartbeatHookOptions
   );
 
-  const commitState = (
+  const commitState = useStableCallback((
     next:
       | WebSocketState<TIncoming>
       | ((current: WebSocketState<TIncoming>) => WebSocketState<TIncoming>)
@@ -214,20 +231,20 @@ export const useWebSocket: UseWebSocketHook = <
     const resolved = typeof next === "function" ? next(stateRef.current) : next;
     stateRef.current = resolved;
     setState(resolved);
-  };
+  });
 
-  const isActiveSocketEvent = useEffectEvent((socketEpoch: number) => {
+  const isActiveSocketEvent = useStableCallback((socketEpoch: number) => {
     return activeSocketEpochRef.current === socketEpoch;
   });
 
-  const shouldHandleSocketClose = useEffectEvent((socketEpoch: number) => {
+  const shouldHandleSocketClose = useStableCallback((socketEpoch: number) => {
     return (
       activeSocketEpochRef.current === socketEpoch ||
       closingSocketEpochRef.current === socketEpoch
     );
   });
 
-  const closeSocket = useEffectEvent(
+  const closeSocket = useStableCallback(
     (
       config: {
         code?: number | undefined;
@@ -253,7 +270,7 @@ export const useWebSocket: UseWebSocketHook = <
     }
   );
 
-  const applyHeartbeatAction = useEffectEvent(
+  const applyHeartbeatAction = useStableCallback(
     (
       action: WebSocketHeartbeatAction,
       error: Event,
@@ -304,19 +321,19 @@ export const useWebSocket: UseWebSocketHook = <
     }
   );
 
-  const parseMessage = useEffectEvent((event: MessageEvent<unknown>) => {
+  const parseMessage = useStableCallback((event: MessageEvent<unknown>) => {
     const parser = options.parseMessage ?? defaultParseMessage<TIncoming>;
     return parser(event);
   });
 
-  const updateBufferedAmount = useEffectEvent(() => {
+  const updateBufferedAmount = useStableCallback(() => {
     commitState((current) => ({
       ...current,
       bufferedAmount: socketRef.current?.bufferedAmount ?? 0
     }));
   });
 
-  const handleOpen = useEffectEvent((event: Event, socket: WebSocket) => {
+  const handleOpen = useStableCallback((event: Event, socket: WebSocket) => {
     manualCloseRef.current = false;
     manualOpenRef.current = false;
     suppressReconnectRef.current = false;
@@ -334,7 +351,7 @@ export const useWebSocket: UseWebSocketHook = <
     options.onOpen?.(event, socket);
   });
 
-  const handleMessage = useEffectEvent((event: MessageEvent<unknown>) => {
+  const handleMessage = useStableCallback((event: MessageEvent<unknown>) => {
     try {
       const message = parseMessage(event);
       heartbeat.notifyAck(message);
@@ -347,8 +364,11 @@ export const useWebSocket: UseWebSocketHook = <
       }));
 
       options.onMessage?.(message, event);
-    } catch {
-      const parseError = new Event("error");
+    } catch (error) {
+      const parseError = new RealtimeErrorEvent("error", {
+        cause: error,
+        kind: "parse-error"
+      });
       terminalErrorRef.current = parseError;
       manualOpenRef.current = false;
       skipCloseReconnectRef.current = true;
@@ -370,7 +390,7 @@ export const useWebSocket: UseWebSocketHook = <
     }
   });
 
-  const handleError = useEffectEvent((event: Event, socketEpoch: number) => {
+  const handleError = useStableCallback((event: Event, socketEpoch: number) => {
     if (!isActiveSocketEvent(socketEpoch)) {
       return;
     }
@@ -386,7 +406,7 @@ export const useWebSocket: UseWebSocketHook = <
     options.onError?.(event);
   });
 
-  const handleClose = useEffectEvent((event: CloseEvent, socketEpoch: number) => {
+  const handleClose = useStableCallback((event: CloseEvent, socketEpoch: number) => {
     if (!shouldHandleSocketClose(socketEpoch)) {
       return;
     }
@@ -467,16 +487,16 @@ export const useWebSocket: UseWebSocketHook = <
     }
   });
 
-  const open = (): void => {
+  const open = useStableCallback((): void => {
     manualCloseRef.current = false;
     manualOpenRef.current = true;
     suppressReconnectRef.current = false;
     terminalErrorRef.current = null;
     reconnect.cancel();
     setOpenNonce((current) => current + 1);
-  };
+  });
 
-  const reconnectNow = (): void => {
+  const reconnectNow = useStableCallback((): void => {
     manualCloseRef.current = false;
     manualOpenRef.current = true;
     skipCloseReconnectRef.current = true;
@@ -486,9 +506,9 @@ export const useWebSocket: UseWebSocketHook = <
     closeSocket();
     suppressReconnectRef.current = false;
     reconnect.schedule("manual");
-  };
+  });
 
-  const close = (code?: number, reason?: string): void => {
+  const close = useStableCallback((code?: number, reason?: string): void => {
     manualCloseRef.current = true;
     manualOpenRef.current = false;
     suppressReconnectRef.current = true;
@@ -507,9 +527,9 @@ export const useWebSocket: UseWebSocketHook = <
       reason,
       trackClose: true
     });
-  };
+  });
 
-  const send = (message: TOutgoing): boolean => {
+  const send = useStableCallback((message: TOutgoing): boolean => {
     const socket = socketRef.current;
 
     if (socket === null || socket.readyState !== WebSocket.OPEN) {
@@ -520,7 +540,7 @@ export const useWebSocket: UseWebSocketHook = <
     socket.send(serializer(message));
     updateBufferedAmount();
     return true;
-  };
+  });
 
   useEffect(() => {
     if (!supported) {
@@ -577,7 +597,7 @@ export const useWebSocket: UseWebSocketHook = <
       return;
     }
 
-    const socket = new WebSocket(resolvedUrl, options.protocols);
+    const socket = new WebSocket(resolvedUrl, protocols);
     const socketEpoch = nextSocketEpochRef.current + 1;
     socketRef.current = socket;
     socketKeyRef.current = nextSocketKey;
@@ -629,9 +649,17 @@ export const useWebSocket: UseWebSocketHook = <
       socket.removeEventListener("close", handleSocketClose);
     };
   }, [
+    closeSocket,
+    commitState,
     connect,
+    handleClose,
+    handleError,
+    handleMessage,
+    handleOpen,
+    isActiveSocketEvent,
     openNonce,
     options.binaryType,
+    protocols,
     protocolsDependency,
     reconnect.status,
     resolvedUrl,
@@ -657,11 +685,13 @@ export const useWebSocket: UseWebSocketHook = <
     }
   }, []);
 
+  const stopHeartbeat = heartbeat.stop;
+
   useEffect(() => {
     if (state.status !== "open") {
-      heartbeat.stop();
+      stopHeartbeat();
     }
-  }, [state.status]);
+  }, [state.status, stopHeartbeat]);
 
   const status =
     (reconnect.status === "scheduled" || reconnect.status === "running") &&

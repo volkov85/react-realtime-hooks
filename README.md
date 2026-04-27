@@ -5,7 +5,7 @@
 [![Demo](https://img.shields.io/github/actions/workflow/status/volkov85/react-realtime-hooks/pages.yml?branch=main&label=demo)](https://github.com/volkov85/react-realtime-hooks/actions/workflows/pages.yml)
 [![license](https://img.shields.io/npm/l/react-realtime-hooks)](https://github.com/volkov85/react-realtime-hooks/blob/main/LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-typed-3178c6)](https://www.typescriptlang.org/)
-[![react](https://img.shields.io/badge/react-19.x-149eca)](https://www.npmjs.com/package/react)
+[![react](https://img.shields.io/badge/react-19.2%2B-149eca)](https://www.npmjs.com/package/react)
 
 Production-ready React hooks for WebSocket and SSE with auto-reconnect, heartbeat, typed connection state, and browser network awareness including page visibility and connection gating.
 
@@ -62,7 +62,7 @@ npm install react-realtime-hooks
 
 Peer dependency:
 
-- `react@^19.0.0`
+- `react@^19.2.0`
 
 ## How It Feels
 
@@ -419,7 +419,7 @@ export function GatedNotifications() {
 | `lastMessage`      | `TIncoming \| null`          | Last parsed message                                                        |
 | `lastMessageEvent` | `MessageEvent \| null`       | Last raw message event                                                     |
 | `lastCloseEvent`   | `CloseEvent \| null`         | Last close event                                                           |
-| `lastError`        | `Event \| null`              | Last error                                                                 |
+| `lastError`        | `Event \| null`              | Last transport error, or `RealtimeErrorEvent` for parse/heartbeat failures |
 | `bufferedAmount`   | `number`                     | Current socket buffer size                                                 |
 | `reconnectState`   | reconnect snapshot or `null` | Current reconnect data                                                     |
 | `heartbeatState`   | heartbeat snapshot or `null` | Current heartbeat data                                                     |
@@ -431,6 +431,10 @@ export function GatedNotifications() {
 When you configure `useWebSocket` heartbeat, you can also set `timeoutAction` and
 `errorAction` to `"none"`, `"close"`, or `"reconnect"`. The default is
 `"reconnect"` when reconnect is enabled and `"close"` otherwise.
+
+When parsing or heartbeat execution fails, `onError` receives a
+`RealtimeErrorEvent` with `kind` and `cause` so the original thrown value is not
+lost.
 
 </details>
 
@@ -462,11 +466,16 @@ When you configure `useWebSocket` heartbeat, you can also set `timeoutAction` an
 | `lastEventName`    | `string \| null`             | Last SSE event name                                                        |
 | `lastMessage`      | `TMessage \| null`           | Last parsed payload                                                        |
 | `lastMessageEvent` | `MessageEvent \| null`       | Last raw message event                                                     |
-| `lastError`        | `Event \| null`              | Last error                                                                 |
+| `lastError`        | `Event \| null`              | Last transport error, or `RealtimeErrorEvent` for parse failures           |
 | `reconnectState`   | reconnect snapshot or `null` | Current reconnect data                                                     |
 | `open`             | `() => void`                 | Manual connect                                                             |
 | `close`            | `() => void`                 | Manual close                                                               |
 | `reconnect`        | `() => void`                 | Manual reconnect                                                           |
+
+On `EventSource` errors, the hook closes the current native source and schedules
+the next connection through `useReconnect`. That makes SSE retries use the
+configured backoff, jitter, and attempt limits instead of the browser's built-in
+retry loop.
 
 </details>
 
@@ -623,7 +632,7 @@ That keeps the gate predictable when multiple blockers apply at once.
 
 - `useEventSource` is receive-only by design. SSE is not a bidirectional transport.
 - `useWebSocket` heartbeat support is client-side. You still define your own server ping/pong protocol.
-- If `parseMessage` throws, the hook calls `onError`, closes the current transport, moves into `error`, stores `lastError`, and stops auto-reconnect until manual `open()` or `reconnect()`.
+- If `parseMessage` throws, the hook calls `onError` with `RealtimeErrorEvent`, closes the current transport, moves into `error`, stores `lastError`, and stops auto-reconnect until manual `open()` or `reconnect()`.
 - Stopping heartbeat clears timeout state and the previous beat/ack timestamps so a new session starts with fresh metrics.
 - `connect: false` keeps the hook in `idle` until `open()` is called.
 - Manual `close()` is sticky. The hook stays closed until `open()` or `reconnect()` is called.

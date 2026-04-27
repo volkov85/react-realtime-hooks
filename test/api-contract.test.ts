@@ -2,6 +2,8 @@ import { describe, expectTypeOf, it } from "vitest";
 
 import type {
   ConnectionGateReason,
+  RealtimeErrorEventInit,
+  RealtimeErrorKind,
   RealtimeConnectionStatus,
   UseConnectionGateOptions,
   UseConnectionGateResult,
@@ -29,6 +31,12 @@ describe("api contracts", () => {
     >();
     expectTypeOf<ConnectionGateReason>().toEqualTypeOf<
       "ready" | "manual" | "offline" | "hidden"
+    >();
+    expectTypeOf<RealtimeErrorKind>().toEqualTypeOf<
+      "heartbeat-error" | "heartbeat-timeout" | "parse-error"
+    >();
+    expectTypeOf<RealtimeErrorEventInit["cause"]>().toEqualTypeOf<
+      unknown
     >();
 
     expectTypeOf<UseReconnectOptions["maxAttempts"]>().toEqualTypeOf<

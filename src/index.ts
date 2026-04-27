@@ -5,4 +5,6 @@ export { useReconnect } from "./hooks/useReconnect";
 export { useHeartbeat } from "./hooks/useHeartbeat";
 export { useWebSocket } from "./hooks/useWebSocket";
 export { useEventSource } from "./hooks/useEventSource";
+export { RealtimeErrorEvent } from "./core/errors";
 export type * from "./types";
+export type { RealtimeErrorEventInit, RealtimeErrorKind } from "./core/errors";
