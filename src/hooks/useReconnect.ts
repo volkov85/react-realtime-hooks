@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   createReconnectAttempt,
@@ -47,9 +47,13 @@ export const useReconnect: UseReconnectHook = (options = {}) => {
         : next;
 
     stateRef.current = resolved;
-    startTransition(() => {
-      setState(resolved);
-    });
+    // `status` is a control signal read by `useEffect` dependencies in
+    // `useWebSocket` / `useEventSource`. It must commit at the default
+    // priority so the consumer effect runs in the same React commit as
+    // the timer callback that triggered the transition; deprioritizing
+    // it via `startTransition` opens a window where the transport sees
+    // a stale status while higher-priority updates render.
+    setState(resolved);
   };
 
   const runAttempt = useStableCallback((attempt: number) => {

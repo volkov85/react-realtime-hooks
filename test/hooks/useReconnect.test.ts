@@ -1,8 +1,9 @@
 import { act, renderHook } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useReconnect } from "../../src";
-import type { ReconnectAttempt } from "../../src";
+import type { ReconnectAttempt, UseReconnectResult } from "../../src";
 
 describe("useReconnect", () => {
   afterEach(() => {
@@ -214,4 +215,54 @@ describe("useReconnect", () => {
     expect(result.current.attempt).toBe(2);
     expect(result.current.nextDelayMs).toBeNull();
   });
+
+  it(
+    "commits status updates at default priority so consumer effects run in the same commit",
+    () => {
+      // `reconnect.status` is a control signal that drives `useEffect`
+      // dependencies in `useWebSocket` / `useEventSource`. Wrapping the
+      // underlying setState in `startTransition` deprioritizes it and lets
+      // higher-priority updates render in between, leaving transports with
+      // a stale status. This test pins the contract: every distinct status
+      // a consumer would observe via `useEffect([reconnect.status])` is
+      // committed eagerly in the same React commit as the call that
+      // produced it.
+      vi.useFakeTimers();
+
+      const observed: UseReconnectResult["status"][] = [];
+
+      const { result } = renderHook(() => {
+        const reconnect = useReconnect({
+          initialDelayMs: 50,
+          jitterRatio: 0
+        });
+
+        useEffect(() => {
+          observed.push(reconnect.status);
+        }, [reconnect.status]);
+
+        return reconnect;
+      });
+
+      expect(observed).toEqual(["idle"]);
+
+      act(() => {
+        result.current.schedule();
+      });
+
+      expect(observed).toEqual(["idle", "scheduled"]);
+
+      act(() => {
+        vi.advanceTimersByTime(50);
+      });
+
+      expect(observed).toEqual(["idle", "scheduled", "running"]);
+
+      act(() => {
+        result.current.markConnected();
+      });
+
+      expect(observed).toEqual(["idle", "scheduled", "running", "idle"]);
+    }
+  );
 });
