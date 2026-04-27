@@ -5,7 +5,7 @@
 [![Demo](https://img.shields.io/github/actions/workflow/status/volkov85/react-realtime-hooks/pages.yml?branch=main&label=demo)](https://github.com/volkov85/react-realtime-hooks/actions/workflows/pages.yml)
 [![license](https://img.shields.io/npm/l/react-realtime-hooks)](https://github.com/volkov85/react-realtime-hooks/blob/main/LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-typed-3178c6)](https://www.typescriptlang.org/)
-[![react](https://img.shields.io/badge/react-19.2%2B-149eca)](https://www.npmjs.com/package/react)
+[![react](https://img.shields.io/badge/react-18%20%7C%2019-149eca)](https://www.npmjs.com/package/react)
 
 Production-ready React hooks for WebSocket and SSE with auto-reconnect, heartbeat, typed connection state, and browser network awareness including page visibility and connection gating.
 
@@ -62,7 +62,7 @@ npm install react-realtime-hooks
 
 Peer dependency:
 
-- `react@^19.2.0`
+- `react@>=18.0.0 <20.0.0` (tested against React 18.3, 19.0, and 19.2)
 
 ## How It Feels
 
