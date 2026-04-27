@@ -1,5 +1,11 @@
 # react-realtime-hooks
 
+## 1.2.2
+
+### Patch Changes
+
+- 6f7c510: Harden realtime hooks behavior and React compatibility
+
 ## 1.2.1
 
 ### Patch Changes
