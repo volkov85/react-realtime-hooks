@@ -230,6 +230,15 @@ describe("useReconnect", () => {
       vi.useFakeTimers();
 
       const observed: UseReconnectResult["status"][] = [];
+      const recordStatus = (status: UseReconnectResult["status"]): void => {
+        // Strict Mode runs effects mount → unmount → mount, which can
+        // duplicate the very first observation. Coalesce consecutive
+        // duplicates so the assertion still pins the *transition order*
+        // (idle → scheduled → running → idle) rather than the count.
+        if (observed[observed.length - 1] !== status) {
+          observed.push(status);
+        }
+      };
 
       const { result } = renderHook(() => {
         const reconnect = useReconnect({
@@ -238,7 +247,7 @@ describe("useReconnect", () => {
         });
 
         useEffect(() => {
-          observed.push(reconnect.status);
+          recordStatus(reconnect.status);
         }, [reconnect.status]);
 
         return reconnect;
