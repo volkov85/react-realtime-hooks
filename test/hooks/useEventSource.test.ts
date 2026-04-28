@@ -1,38 +1,18 @@
-import {
-  act,
-  configure,
-  getConfig,
-  renderHook,
-  waitFor
-} from "@testing-library/react";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi
-} from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RealtimeErrorEvent, useEventSource } from "../../src";
 
-// `useEventSource` does not yet debounce source creation across the
-// Strict Mode mount → unmount → mount cycle, so the second mount opens
-// a fresh `EventSource` while the first is still in `CONNECTING`. Under
-// `configure({ reactStrictMode: true })` the existing tests would race
-// the two sources and assert against the wrong instance. Until the
-// transport-side fix lands (audit Issue 6 / PR 6), opt this file out
-// of Strict Mode so the suite still exercises the public contract.
-let previousReactStrictMode: boolean;
-beforeAll(() => {
-  previousReactStrictMode = getConfig().reactStrictMode;
-  configure({ reactStrictMode: false });
-});
-afterAll(() => {
-  configure({ reactStrictMode: previousReactStrictMode });
-});
+// `useEventSource` defers `new EventSource(...)` by one microtask so
+// that React Strict Mode's mount → cleanup → mount cycle never opens a
+// real source. Tests that synchronously inspect
+// `MockEventSource.instances` after `renderHook` therefore need to
+// flush the microtask queue. We pin the helper here instead of
+// inlining `await Promise.resolve()` so the intent is obvious at every
+// call site.
+const flushMicrotasks = async (): Promise<void> => {
+  await act(async () => {});
+};
 
 class MockEventSource {
   static instances: MockEventSource[] = [];
@@ -114,6 +94,7 @@ describe("useEventSource", () => {
       })
     );
 
+    await flushMicrotasks();
     const source = MockEventSource.instances[0];
     expect(source).toBeDefined();
 
@@ -147,6 +128,7 @@ describe("useEventSource", () => {
       })
     );
 
+    await flushMicrotasks();
     const source = MockEventSource.instances[0];
 
     act(() => {
@@ -166,7 +148,7 @@ describe("useEventSource", () => {
     );
   });
 
-  it("supports manual open when connect is false", () => {
+  it("supports manual open when connect is false", async () => {
     const { result } = renderHook(() =>
       useEventSource({
         connect: false,
@@ -174,21 +156,25 @@ describe("useEventSource", () => {
       })
     );
 
+    await flushMicrotasks();
     expect(MockEventSource.instances).toHaveLength(0);
 
     act(() => {
       result.current.open();
     });
 
+    await flushMicrotasks();
     expect(MockEventSource.instances).toHaveLength(1);
   });
 
-  it("keeps imperative methods stable across renders", () => {
+  it("keeps imperative methods stable across renders", async () => {
     const { result, rerender } = renderHook(() =>
       useEventSource({
         url: "http://localhost:3000/sse"
       })
     );
+
+    await flushMicrotasks();
 
     const methods = {
       close: result.current.close,
@@ -203,7 +189,7 @@ describe("useEventSource", () => {
     expect(result.current.reconnect).toBe(methods.reconnect);
   });
 
-  it("distinguishes event arrays that would collide with joined keys", () => {
+  it("distinguishes event arrays that would collide with joined keys", async () => {
     const { rerender } = renderHook(
       ({ events }: { events: string[] }) =>
         useEventSource({
@@ -217,6 +203,7 @@ describe("useEventSource", () => {
       }
     );
 
+    await flushMicrotasks();
     const firstSource = MockEventSource.instances[0];
 
     expect(MockEventSource.instances).toHaveLength(1);
@@ -227,6 +214,7 @@ describe("useEventSource", () => {
       events: ["a", "b|c"]
     });
 
+    await flushMicrotasks();
     const secondSource = MockEventSource.instances[1];
 
     expect(firstSource?.closeCalls).toBe(1);
@@ -235,7 +223,7 @@ describe("useEventSource", () => {
     expect(secondSource?.listenerCount("b|c")).toBe(1);
   });
 
-  it("does not reconnect for event list ordering, duplicates, or message aliases", () => {
+  it("does not reconnect for event list ordering, duplicates, or message aliases", async () => {
     const { rerender } = renderHook(
       ({ events }: { events: string[] }) =>
         useEventSource({
@@ -249,10 +237,13 @@ describe("useEventSource", () => {
       }
     );
 
+    await flushMicrotasks();
+
     rerender({
       events: ["message", "notice"]
     });
 
+    await flushMicrotasks();
     expect(MockEventSource.instances).toHaveLength(1);
     expect(MockEventSource.instances[0]?.listenerCount("message")).toBe(1);
     expect(MockEventSource.instances[0]?.listenerCount("notice")).toBe(1);
@@ -271,6 +262,7 @@ describe("useEventSource", () => {
       })
     );
 
+    await act(async () => {});
     const firstSource = MockEventSource.instances[0];
 
     act(() => {
@@ -300,6 +292,7 @@ describe("useEventSource", () => {
       })
     );
 
+    await act(async () => {});
     const firstSource = MockEventSource.instances[0];
 
     act(() => {
@@ -341,6 +334,7 @@ describe("useEventSource", () => {
       })
     );
 
+    await act(async () => {});
     const firstSource = MockEventSource.instances[0];
 
     act(() => {
@@ -375,6 +369,7 @@ describe("useEventSource", () => {
       })
     );
 
+    await act(async () => {});
     const firstSource = MockEventSource.instances[0];
 
     act(() => {
@@ -408,6 +403,7 @@ describe("useEventSource", () => {
       })
     );
 
+    await flushMicrotasks();
     const source = MockEventSource.instances[0];
 
     act(() => {
@@ -427,7 +423,7 @@ describe("useEventSource", () => {
     expect(result.current.reconnectState?.status).toBe("stopped");
   });
 
-  it("closes the source and stops reconnect after parse errors", () => {
+  it("closes the source and stops reconnect after parse errors", async () => {
     vi.useFakeTimers();
     const onError = vi.fn();
     const parseCause = new Error("invalid payload");
@@ -446,6 +442,7 @@ describe("useEventSource", () => {
       })
     );
 
+    await act(async () => {});
     const source = MockEventSource.instances[0];
 
     act(() => {
@@ -494,6 +491,7 @@ describe("useEventSource", () => {
       })
     );
 
+    await flushMicrotasks();
     const source = MockEventSource.instances[0];
 
     act(() => {
@@ -518,7 +516,7 @@ describe("useEventSource", () => {
     expect(source?.listenerCount("error")).toBe(0);
   });
 
-  it("passes withCredentials to the transport", () => {
+  it("passes withCredentials to the transport", async () => {
     renderHook(() =>
       useEventSource({
         url: "http://localhost:3000/sse",
@@ -526,7 +524,42 @@ describe("useEventSource", () => {
       })
     );
 
+    await flushMicrotasks();
     expect(MockEventSource.instances[0]?.withCredentials).toBe(true);
+  });
+
+  it("opens exactly one source under React Strict Mode's mount cycle", async () => {
+    // Strict Mode in dev double-invokes the effect mount → cleanup →
+    // mount before any microtask flushes. The cleanup's `cancelled`
+    // flag must prevent the discarded mount's queued
+    // `new EventSource(...)` from ever running, so only the surviving
+    // mount opens a source.
+    renderHook(() =>
+      useEventSource({
+        url: "http://localhost:3000/sse"
+      })
+    );
+
+    await flushMicrotasks();
+
+    expect(MockEventSource.instances).toHaveLength(1);
+  });
+
+  it("opens no source if the component unmounts before the microtask flush", async () => {
+    // Mount → unmount in the same synchronous batch is the worst-case
+    // timing for any deferred-allocation scheme. The microtask must
+    // observe `cancelled === true` and skip `new EventSource(...)`
+    // entirely.
+    const { unmount } = renderHook(() =>
+      useEventSource({
+        url: "http://localhost:3000/sse"
+      })
+    );
+    unmount();
+
+    await flushMicrotasks();
+
+    expect(MockEventSource.instances).toHaveLength(0);
   });
 
   it("reports unsupported runtime", () => {
