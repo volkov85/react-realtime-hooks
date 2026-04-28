@@ -1,11 +1,11 @@
 import { renderHook } from "@testing-library/react";
-import * as React from "react";
+import { StrictMode, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { useStableCallback } from "../../src/hooks/useStableCallback";
 
-const StrictModeWrapper = ({ children }: { children: React.ReactNode }) => (
-  <React.StrictMode>{children}</React.StrictMode>
+const StrictModeWrapper = ({ children }: { children: ReactNode }) => (
+  <StrictMode>{children}</StrictMode>
 );
 
 describe("useStableCallback", () => {
@@ -65,6 +65,9 @@ describe("useStableCallback", () => {
     // pointing at a discarded-render's closure. With useInsertionEffect, the
     // ref is only updated for renders that actually commit, so the wrapper
     // identity stays stable and the latest committed callback is invoked.
+    // The global vitest setup already enables `reactStrictMode: true`,
+    // but this test passes `wrapper: StrictModeWrapper` explicitly so it
+    // remains self-documenting and resilient to future config changes.
     const first = vi.fn().mockReturnValue("first");
     const second = vi.fn().mockReturnValue("second");
 

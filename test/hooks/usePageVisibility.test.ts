@@ -115,22 +115,25 @@ describe("usePageVisibility", () => {
 
     const { unmount } = renderHook(() => usePageVisibility());
 
-    const addCalls = addEventListenerSpy.mock.calls.filter(
-      ([eventName]) => eventName === "visibilitychange"
-    );
-
-    expect(addCalls).toHaveLength(1);
-
-    const handler = addCalls[0]?.[1];
-
     unmount();
 
-    const removedHandler = removeEventListenerSpy.mock.calls.some(
-      ([eventName, candidate]) =>
-        eventName === "visibilitychange" && candidate === handler
-    );
+    // Under `<React.StrictMode>` the hook may mount → cleanup → mount in
+    // dev, so multiple add/remove pairs can occur for a single mount.
+    // The contract worth pinning is that every visibilitychange listener
+    // that was added has also been removed by the time the component is
+    // gone, regardless of how many times Strict Mode re-ran the effect.
+    const addedHandlers = addEventListenerSpy.mock.calls
+      .filter(([eventName]) => eventName === "visibilitychange")
+      .map(([, handler]) => handler);
+    const removedHandlers = removeEventListenerSpy.mock.calls
+      .filter(([eventName]) => eventName === "visibilitychange")
+      .map(([, handler]) => handler);
 
-    expect(removedHandler).toBe(true);
+    expect(addedHandlers.length).toBeGreaterThanOrEqual(1);
+    expect(removedHandlers).toHaveLength(addedHandlers.length);
+    for (const handler of addedHandlers) {
+      expect(removedHandlers).toContain(handler);
+    }
   });
 
   it("supports server rendering without touching document", () => {
