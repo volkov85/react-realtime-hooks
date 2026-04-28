@@ -1,38 +1,17 @@
-import {
-  act,
-  configure,
-  getConfig,
-  renderHook,
-  waitFor
-} from "@testing-library/react";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi
-} from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RealtimeErrorEvent, useWebSocket } from "../../src";
 
-// `useWebSocket` does not yet debounce socket creation across the
-// Strict Mode mount → unmount → mount cycle, so the second mount opens
-// a fresh `WebSocket` while the first is still in `CONNECTING`. Under
-// `configure({ reactStrictMode: true })` the existing tests would race
-// the two sockets and assert against the wrong instance. Until the
-// transport-side fix lands (audit Issue 6 / PR 6), opt this file out
-// of Strict Mode so the suite still exercises the public contract.
-let previousReactStrictMode: boolean;
-beforeAll(() => {
-  previousReactStrictMode = getConfig().reactStrictMode;
-  configure({ reactStrictMode: false });
-});
-afterAll(() => {
-  configure({ reactStrictMode: previousReactStrictMode });
-});
+// `useWebSocket` defers `new WebSocket(...)` by one microtask so that
+// React Strict Mode's mount → cleanup → mount cycle never opens a real
+// socket. Tests that synchronously inspect `MockWebSocket.instances`
+// after `renderHook` therefore need to flush the microtask queue. We
+// pin the helper here instead of inlining `await Promise.resolve()` so
+// the intent is obvious at every call site.
+const flushMicrotasks = async (): Promise<void> => {
+  await act(async () => {});
+};
 
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
@@ -150,6 +129,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await flushMicrotasks();
     const socket = MockWebSocket.instances[0];
     expect(socket).toBeDefined();
 
@@ -179,6 +159,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await flushMicrotasks();
     const socket = MockWebSocket.instances[0];
 
     act(() => {
@@ -197,7 +178,7 @@ describe("useWebSocket", () => {
     expect(socket?.sent).toEqual(['{"ping":true}']);
   });
 
-  it("supports manual open when connect is false", () => {
+  it("supports manual open when connect is false", async () => {
     const { result } = renderHook(() =>
       useWebSocket({
         connect: false,
@@ -205,16 +186,18 @@ describe("useWebSocket", () => {
       })
     );
 
+    await flushMicrotasks();
     expect(MockWebSocket.instances).toHaveLength(0);
 
     act(() => {
       result.current.open();
     });
 
+    await flushMicrotasks();
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 
-  it("distinguishes protocol arrays that would collide with joined keys", () => {
+  it("distinguishes protocol arrays that would collide with joined keys", async () => {
     const { rerender } = renderHook(
       ({ protocols }: { protocols: string[] }) =>
         useWebSocket({
@@ -228,6 +211,7 @@ describe("useWebSocket", () => {
       }
     );
 
+    await flushMicrotasks();
     expect(MockWebSocket.instances).toHaveLength(1);
     expect(MockWebSocket.instances[0]?.protocols).toEqual(["a|b", "c"]);
 
@@ -235,16 +219,19 @@ describe("useWebSocket", () => {
       protocols: ["a", "b|c"]
     });
 
+    await flushMicrotasks();
     expect(MockWebSocket.instances).toHaveLength(2);
     expect(MockWebSocket.instances[1]?.protocols).toEqual(["a", "b|c"]);
   });
 
-  it("keeps imperative methods stable across renders", () => {
+  it("keeps imperative methods stable across renders", async () => {
     const { result, rerender } = renderHook(() =>
       useWebSocket({
         url: "ws://localhost:1234"
       })
     );
+
+    await flushMicrotasks();
 
     const methods = {
       close: result.current.close,
@@ -274,6 +261,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await act(async () => {});
     const firstSocket = MockWebSocket.instances[0];
 
     act(() => {
@@ -306,6 +294,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await act(async () => {});
     const firstSocket = MockWebSocket.instances[0];
 
     act(() => {
@@ -338,6 +327,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await act(async () => {});
     const firstSocket = MockWebSocket.instances[0];
 
     act(() => {
@@ -368,6 +358,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await flushMicrotasks();
     const socket = MockWebSocket.instances[0];
 
     act(() => {
@@ -391,7 +382,7 @@ describe("useWebSocket", () => {
     expect(result.current.reconnectState?.status).toBe("stopped");
   });
 
-  it("integrates heartbeat ack state", () => {
+  it("integrates heartbeat ack state", async () => {
     vi.useFakeTimers();
 
     const { result } = renderHook(() =>
@@ -406,6 +397,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await act(async () => {});
     const socket = MockWebSocket.instances[0];
 
     act(() => {
@@ -422,7 +414,7 @@ describe("useWebSocket", () => {
     expect(result.current.heartbeatState?.lastAckAt).not.toBeNull();
   });
 
-  it("stops heartbeat after manual close", () => {
+  it("stops heartbeat after manual close", async () => {
     vi.useFakeTimers();
 
     const { result } = renderHook(() =>
@@ -436,6 +428,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await act(async () => {});
     const socket = MockWebSocket.instances[0];
 
     act(() => {
@@ -474,6 +467,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await act(async () => {});
     const socket = MockWebSocket.instances[0];
 
     act(() => {
@@ -498,7 +492,7 @@ describe("useWebSocket", () => {
     );
   });
 
-  it("moves to error on heartbeat timeout when reconnect is disabled", () => {
+  it("moves to error on heartbeat timeout when reconnect is disabled", async () => {
     vi.useFakeTimers();
 
     const { result } = renderHook(() =>
@@ -513,6 +507,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await act(async () => {});
     const socket = MockWebSocket.instances[0];
 
     act(() => {
@@ -550,6 +545,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await act(async () => {});
     const socket = MockWebSocket.instances[0];
 
     act(() => {
@@ -574,7 +570,7 @@ describe("useWebSocket", () => {
     );
   });
 
-  it("closes the socket and stops reconnect after parse errors", () => {
+  it("closes the socket and stops reconnect after parse errors", async () => {
     vi.useFakeTimers();
     const onError = vi.fn();
     const parseCause = new Error("invalid payload");
@@ -593,6 +589,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await act(async () => {});
     const socket = MockWebSocket.instances[0];
 
     act(() => {
@@ -638,6 +635,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await flushMicrotasks();
     const socket = MockWebSocket.instances[0];
 
     act(() => {
@@ -679,6 +677,7 @@ describe("useWebSocket", () => {
       })
     );
 
+    await act(async () => {});
     const socket = MockWebSocket.instances[0];
 
     act(() => {
@@ -705,6 +704,43 @@ describe("useWebSocket", () => {
     });
 
     expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it("opens exactly one socket under React Strict Mode's mount cycle", async () => {
+    // Strict Mode in dev double-invokes the effect mount → cleanup →
+    // mount before any microtask flushes. The cleanup's `cancelled`
+    // flag must prevent the discarded mount's queued `new WebSocket(...)`
+    // from ever running, so only the surviving mount opens a socket.
+    // This is enforced globally for every test in this file via
+    // `configure({ reactStrictMode: true })` in `test/setup.ts`, but
+    // we pin the contract explicitly here so a regression in the
+    // microtask debounce is loud and locally diagnosable.
+    renderHook(() =>
+      useWebSocket({
+        url: "ws://localhost:1234"
+      })
+    );
+
+    await flushMicrotasks();
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it("opens no socket if the component unmounts before the microtask flush", async () => {
+    // Strict-Mode-style mount → unmount in the same synchronous batch
+    // is the worst-case timing for any deferred-allocation scheme. The
+    // microtask must observe `cancelled === true` and skip
+    // `new WebSocket(...)` entirely.
+    const { unmount } = renderHook(() =>
+      useWebSocket({
+        url: "ws://localhost:1234"
+      })
+    );
+    unmount();
+
+    await flushMicrotasks();
+
+    expect(MockWebSocket.instances).toHaveLength(0);
   });
 
   it("reports unsupported runtime", () => {

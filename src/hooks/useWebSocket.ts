@@ -597,18 +597,12 @@ export const useWebSocket: UseWebSocketHook = <
       return;
     }
 
-    const socket = new WebSocket(resolvedUrl, protocols);
-    const socketEpoch = nextSocketEpochRef.current + 1;
-    socketRef.current = socket;
-    socketKeyRef.current = nextSocketKey;
-    activeSocketEpochRef.current = socketEpoch;
-    closingSocketEpochRef.current = null;
-    nextSocketEpochRef.current = socketEpoch;
-    socket.binaryType = options.binaryType ?? "blob";
-
+    // Commit `connecting` synchronously so consumer effects (status
+    // observers, snapshot reducers) see the transition in the same React
+    // commit as the call that triggered the connect attempt.
     commitState((current) => ({
       ...current,
-      bufferedAmount: socket.bufferedAmount,
+      bufferedAmount: 0,
       lastChangedAt: Date.now(),
       status:
         reconnect.status === "running" || reconnect.status === "scheduled"
@@ -616,37 +610,70 @@ export const useWebSocket: UseWebSocketHook = <
           : "connecting"
     }));
 
-    const handleSocketOpen = (event: Event): void => {
-      if (!isActiveSocketEvent(socketEpoch)) {
+    // Defer the actual `new WebSocket(...)` allocation by a microtask.
+    // Under React Strict Mode in dev, the effect runs mount → cleanup →
+    // mount synchronously; the cleanup below flips `cancelled` so the
+    // discarded mount never opens a real socket. After the microtask
+    // queue flushes, only the surviving mount instantiates the socket.
+    let cancelled = false;
+    let detachListeners: (() => void) | null = null;
+
+    queueMicrotask(() => {
+      if (cancelled) {
         return;
       }
 
-      handleOpen(event, socket);
-    };
-    const handleSocketMessage = (event: MessageEvent<unknown>): void => {
-      if (!isActiveSocketEvent(socketEpoch)) {
-        return;
-      }
+      const socket = new WebSocket(resolvedUrl, protocols);
+      const socketEpoch = nextSocketEpochRef.current + 1;
+      socketRef.current = socket;
+      socketKeyRef.current = nextSocketKey;
+      activeSocketEpochRef.current = socketEpoch;
+      closingSocketEpochRef.current = null;
+      nextSocketEpochRef.current = socketEpoch;
+      socket.binaryType = options.binaryType ?? "blob";
 
-      handleMessage(event);
-    };
-    const handleSocketError = (event: Event): void => {
-      handleError(event, socketEpoch);
-    };
-    const handleSocketClose = (event: CloseEvent): void => {
-      handleClose(event, socketEpoch);
-    };
+      commitState((current) => ({
+        ...current,
+        bufferedAmount: socket.bufferedAmount
+      }));
 
-    socket.addEventListener("open", handleSocketOpen);
-    socket.addEventListener("message", handleSocketMessage);
-    socket.addEventListener("error", handleSocketError);
-    socket.addEventListener("close", handleSocketClose);
+      const handleSocketOpen = (event: Event): void => {
+        if (!isActiveSocketEvent(socketEpoch)) {
+          return;
+        }
+
+        handleOpen(event, socket);
+      };
+      const handleSocketMessage = (event: MessageEvent<unknown>): void => {
+        if (!isActiveSocketEvent(socketEpoch)) {
+          return;
+        }
+
+        handleMessage(event);
+      };
+      const handleSocketError = (event: Event): void => {
+        handleError(event, socketEpoch);
+      };
+      const handleSocketClose = (event: CloseEvent): void => {
+        handleClose(event, socketEpoch);
+      };
+
+      socket.addEventListener("open", handleSocketOpen);
+      socket.addEventListener("message", handleSocketMessage);
+      socket.addEventListener("error", handleSocketError);
+      socket.addEventListener("close", handleSocketClose);
+
+      detachListeners = () => {
+        socket.removeEventListener("open", handleSocketOpen);
+        socket.removeEventListener("message", handleSocketMessage);
+        socket.removeEventListener("error", handleSocketError);
+        socket.removeEventListener("close", handleSocketClose);
+      };
+    });
 
     return () => {
-      socket.removeEventListener("open", handleSocketOpen);
-      socket.removeEventListener("message", handleSocketMessage);
-      socket.removeEventListener("error", handleSocketError);
-      socket.removeEventListener("close", handleSocketClose);
+      cancelled = true;
+      detachListeners?.();
     };
   }, [
     closeSocket,

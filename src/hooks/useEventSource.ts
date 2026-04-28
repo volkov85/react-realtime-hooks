@@ -328,16 +328,9 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
       return;
     }
 
-    const source = new EventSource(resolvedUrl, {
-      withCredentials: options.withCredentials ?? false
-    });
-    const sourceEpoch = nextEventSourceEpochRef.current + 1;
-
-    eventSourceRef.current = source;
-    eventSourceKeyRef.current = nextEventSourceKey;
-    activeEventSourceEpochRef.current = sourceEpoch;
-    nextEventSourceEpochRef.current = sourceEpoch;
-
+    // Commit `connecting` synchronously so consumer effects (status
+    // observers, snapshot reducers) see the transition in the same React
+    // commit as the call that triggered the connect attempt.
     commitState((current) => ({
       ...current,
       lastChangedAt: Date.now(),
@@ -347,55 +340,84 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
           : "connecting"
     }));
 
-    const handleSourceOpen = (event: Event): void => {
-      if (!isActiveEventSourceEvent(sourceEpoch)) {
+    // Defer the actual `new EventSource(...)` allocation by a microtask.
+    // Under React Strict Mode in dev, the effect runs mount → cleanup →
+    // mount synchronously; the cleanup below flips `cancelled` so the
+    // discarded mount never opens a real source. After the microtask
+    // queue flushes, only the surviving mount instantiates the source.
+    let cancelled = false;
+    let detachListeners: (() => void) | null = null;
+
+    queueMicrotask(() => {
+      if (cancelled) {
         return;
       }
 
-      handleOpen(event, source);
-    };
-    const handleSourceMessage = (event: Event): void => {
-      if (!isActiveEventSourceEvent(sourceEpoch)) {
-        return;
-      }
+      const source = new EventSource(resolvedUrl, {
+        withCredentials: options.withCredentials ?? false
+      });
+      const sourceEpoch = nextEventSourceEpochRef.current + 1;
 
-      commitParsedMessage("message", event as MessageEvent<string>, false);
-    };
-    const namedEventHandlers = new Map<
-      string,
-      (event: Event) => void
-    >();
-    const handleSourceError = (event: Event): void => {
-      handleError(event, source, sourceEpoch);
-    };
+      eventSourceRef.current = source;
+      eventSourceKeyRef.current = nextEventSourceKey;
+      activeEventSourceEpochRef.current = sourceEpoch;
+      nextEventSourceEpochRef.current = sourceEpoch;
 
-    source.addEventListener("open", handleSourceOpen);
-    source.addEventListener("message", handleSourceMessage);
-
-    for (const eventName of namedEvents) {
-      const handler = (event: Event): void => {
+      const handleSourceOpen = (event: Event): void => {
         if (!isActiveEventSourceEvent(sourceEpoch)) {
           return;
         }
 
-        commitParsedMessage(eventName, event as MessageEvent<string>, true);
+        handleOpen(event, source);
+      };
+      const handleSourceMessage = (event: Event): void => {
+        if (!isActiveEventSourceEvent(sourceEpoch)) {
+          return;
+        }
+
+        commitParsedMessage("message", event as MessageEvent<string>, false);
+      };
+      const namedEventHandlers = new Map<
+        string,
+        (event: Event) => void
+      >();
+      const handleSourceError = (event: Event): void => {
+        handleError(event, source, sourceEpoch);
       };
 
-      namedEventHandlers.set(eventName, handler);
-      source.addEventListener(eventName, handler);
-    }
+      source.addEventListener("open", handleSourceOpen);
+      source.addEventListener("message", handleSourceMessage);
 
-    source.addEventListener("error", handleSourceError);
+      for (const eventName of namedEvents) {
+        const handler = (event: Event): void => {
+          if (!isActiveEventSourceEvent(sourceEpoch)) {
+            return;
+          }
 
-    return () => {
-      source.removeEventListener("open", handleSourceOpen);
-      source.removeEventListener("message", handleSourceMessage);
+          commitParsedMessage(eventName, event as MessageEvent<string>, true);
+        };
 
-      for (const [eventName, handler] of namedEventHandlers) {
-        source.removeEventListener(eventName, handler);
+        namedEventHandlers.set(eventName, handler);
+        source.addEventListener(eventName, handler);
       }
 
-      source.removeEventListener("error", handleSourceError);
+      source.addEventListener("error", handleSourceError);
+
+      detachListeners = () => {
+        source.removeEventListener("open", handleSourceOpen);
+        source.removeEventListener("message", handleSourceMessage);
+
+        for (const [eventName, handler] of namedEventHandlers) {
+          source.removeEventListener(eventName, handler);
+        }
+
+        source.removeEventListener("error", handleSourceError);
+      };
+    });
+
+    return () => {
+      cancelled = true;
+      detachListeners?.();
     };
   }, [
     closeEventSource,
