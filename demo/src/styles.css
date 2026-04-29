@@ -344,3 +344,119 @@ select {
 
 
 
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 24px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+}
+
+.tab {
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(247, 244, 234, 0.72);
+  font-weight: 600;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.tab:hover {
+  color: #f7f4ea;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tab-active {
+  color: #14213d;
+  background: #ffd166;
+  border-color: #fcbf49;
+}
+
+.tab-active:hover {
+  color: #14213d;
+  background: #ffd166;
+}
+
+.fieldset {
+  margin: 0 0 12px;
+  padding: 10px 12px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+.fieldset > legend {
+  padding: 0 6px;
+  color: rgba(247, 244, 234, 0.85);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-bottom: 8px;
+}
+
+.radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.buffered-meter {
+  margin-top: 14px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+.buffered-meter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+}
+
+.buffered-meter-label {
+  color: rgba(247, 244, 234, 0.7);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.buffered-meter-value {
+  font-weight: 700;
+  color: #ffd166;
+  font-variant-numeric: tabular-nums;
+}
+
+.buffered-meter-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.buffered-meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #fcbf49, #f77f00);
+  transition: width 0.1s linear;
+}
+
+.buffered-meter-hint {
+  margin: 8px 0 0;
+}

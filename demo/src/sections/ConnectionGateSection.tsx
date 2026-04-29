@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useConnectionGate } from "../../src";
+import { useConnectionGate } from "../../../src";
 
 type LogEntry = {
   id: string;

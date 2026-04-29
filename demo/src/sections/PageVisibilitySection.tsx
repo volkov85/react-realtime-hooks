@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { usePageVisibility } from "../../src";
+import { usePageVisibility } from "../../../src";
 
 type LogEntry = {
   id: string;
