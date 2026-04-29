@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useInsertionEffect, useRef, useState } from "react";
 
 import {
   createManagedInterval,
@@ -40,7 +40,9 @@ export const useHeartbeat = <
   );
   const stateRef = useRef(state);
 
-  stateRef.current = state;
+  useInsertionEffect(() => {
+    stateRef.current = state;
+  });
 
   const commitState = (
     next:

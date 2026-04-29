@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useInsertionEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 
 import { createConnectionStateSnapshot } from "../core/connection-state";
 import { RealtimeErrorEvent } from "../core/errors";
@@ -115,7 +121,9 @@ export const useWebSocket: UseWebSocketHook = <
     createInitialState(connect ? "connecting" : "idle")
   );
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useInsertionEffect(() => {
+    stateRef.current = state;
+  });
 
   const reconnectEnabled =
     options.reconnect !== false && supported && resolvedUrl !== null;
