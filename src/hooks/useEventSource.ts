@@ -82,8 +82,14 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
   const suppressReconnectRef = useRef(false);
   const terminalErrorRef = useRef<Event | null>(null);
   const [openNonce, setOpenNonce] = useState(0);
+  const initialStatus: EventSourceState<TMessage>["status"] =
+    !supported || resolvedUrl === null
+      ? "closed"
+      : connect
+        ? "connecting"
+        : "idle";
   const [state, setState] = useState<EventSourceState<TMessage>>(() =>
-    createInitialState(connect ? "connecting" : "idle")
+    createInitialState(initialStatus)
   );
   const stateRef = useRef(state);
   useInsertionEffect(() => {
