@@ -627,6 +627,14 @@ describe("useWebSocket", () => {
   });
 
   it("updates lastChangedAt when the socket emits an error", async () => {
+    // `lastChangedAt` is sourced from `Date.now()` inside the hook. Two
+    // synchronous `commitState` calls on a fast CPU can land in the same
+    // millisecond, making `expect(lastChangedAt).not.toBe(openedAt)`
+    // flaky in CI. Mock `Date.now` to advance deterministically.
+    const dateNowSpy = vi.spyOn(Date, "now");
+    let nowMs = 1_000_000;
+    dateNowSpy.mockImplementation(() => nowMs);
+
     const onError = vi.fn();
     const { result } = renderHook(() =>
       useWebSocket({
@@ -638,6 +646,7 @@ describe("useWebSocket", () => {
     await flushMicrotasks();
     const socket = MockWebSocket.instances[0];
 
+    nowMs += 1;
     act(() => {
       socket?.emitOpen();
     });
@@ -648,6 +657,7 @@ describe("useWebSocket", () => {
 
     const openedAt = result.current.lastChangedAt;
 
+    nowMs += 1;
     act(() => {
       socket?.emitError();
     });
@@ -658,6 +668,8 @@ describe("useWebSocket", () => {
     expect(onError).toHaveBeenCalledWith(
       expect.objectContaining({ type: "error" })
     );
+
+    dateNowSpy.mockRestore();
   });
 
   it("cleans up listeners and timers on unmount", async () => {
