@@ -743,6 +743,251 @@ describe("useWebSocket", () => {
     expect(MockWebSocket.instances).toHaveLength(0);
   });
 
+  it("does not poll bufferedAmount by default (drained bytes are invisible until next send)", async () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useWebSocket<string, string>({
+        url: "ws://localhost:1234"
+      })
+    );
+
+    await act(async () => {});
+    const socket = MockWebSocket.instances[0];
+
+    act(() => {
+      socket?.emitOpen();
+    });
+
+    act(() => {
+      result.current.send("payload");
+    });
+
+    expect(result.current.bufferedAmount).toBe(1);
+
+    // Mimic the network draining the buffer behind our back. Without
+    // polling, `state.bufferedAmount` keeps reading the stale value.
+    if (socket) {
+      socket.bufferedAmount = 0;
+    }
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    expect(result.current.bufferedAmount).toBe(1);
+  });
+
+  it("polls bufferedAmount with the default 100ms interval when bufferedAmountPolling is true", async () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useWebSocket<string, string>({
+        bufferedAmountPolling: true,
+        url: "ws://localhost:1234"
+      })
+    );
+
+    await act(async () => {});
+    const socket = MockWebSocket.instances[0];
+
+    act(() => {
+      socket?.emitOpen();
+    });
+
+    act(() => {
+      result.current.send("payload");
+    });
+
+    expect(result.current.bufferedAmount).toBe(1);
+
+    if (socket) {
+      socket.bufferedAmount = 0;
+    }
+
+    act(() => {
+      vi.advanceTimersByTime(99);
+    });
+
+    // One tick before the first interval fires -- still stale.
+    expect(result.current.bufferedAmount).toBe(1);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(result.current.bufferedAmount).toBe(0);
+  });
+
+  it("polls bufferedAmount at the configured intervalMs", async () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useWebSocket<string, string>({
+        bufferedAmountPolling: { intervalMs: 25 },
+        url: "ws://localhost:1234"
+      })
+    );
+
+    await act(async () => {});
+    const socket = MockWebSocket.instances[0];
+
+    act(() => {
+      socket?.emitOpen();
+    });
+
+    act(() => {
+      result.current.send("payload");
+      result.current.send("payload");
+    });
+
+    expect(result.current.bufferedAmount).toBe(2);
+
+    if (socket) {
+      socket.bufferedAmount = 1;
+    }
+
+    act(() => {
+      vi.advanceTimersByTime(25);
+    });
+
+    expect(result.current.bufferedAmount).toBe(1);
+
+    if (socket) {
+      socket.bufferedAmount = 0;
+    }
+
+    act(() => {
+      vi.advanceTimersByTime(25);
+    });
+
+    expect(result.current.bufferedAmount).toBe(0);
+  });
+
+  it("polls bufferedAmount on every animation frame when bufferedAmountPolling is \"raf\"", async () => {
+    const rafCallbacks: FrameRequestCallback[] = [];
+    const originalRaf = globalThis.requestAnimationFrame;
+    const originalCaf = globalThis.cancelAnimationFrame;
+
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    }) as typeof globalThis.requestAnimationFrame;
+    globalThis.cancelAnimationFrame = (() => {}) as typeof globalThis.cancelAnimationFrame;
+
+    try {
+      const { result } = renderHook(() =>
+        useWebSocket<string, string>({
+          bufferedAmountPolling: "raf",
+          url: "ws://localhost:1234"
+        })
+      );
+
+      await flushMicrotasks();
+      const socket = MockWebSocket.instances[0];
+
+      act(() => {
+        socket?.emitOpen();
+      });
+
+      act(() => {
+        result.current.send("payload");
+      });
+
+      expect(result.current.bufferedAmount).toBe(1);
+
+      if (socket) {
+        socket.bufferedAmount = 0;
+      }
+
+      // Drive one animation frame manually.
+      act(() => {
+        const next = rafCallbacks.shift();
+        next?.(performance.now());
+      });
+
+      expect(result.current.bufferedAmount).toBe(0);
+      // The polling loop must have re-queued itself for the next frame.
+      expect(rafCallbacks.length).toBeGreaterThan(0);
+    } finally {
+      globalThis.requestAnimationFrame = originalRaf;
+      globalThis.cancelAnimationFrame = originalCaf;
+    }
+  });
+
+  it("stops bufferedAmount polling after the socket closes", async () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useWebSocket<string, string>({
+        bufferedAmountPolling: { intervalMs: 25 },
+        url: "ws://localhost:1234"
+      })
+    );
+
+    await act(async () => {});
+    const socket = MockWebSocket.instances[0];
+
+    act(() => {
+      socket?.emitOpen();
+    });
+
+    act(() => {
+      result.current.send("payload");
+      result.current.close();
+    });
+
+    // After close the socket ref is gone; polling should not crash and
+    // should not commit any further updates.
+    if (socket) {
+      socket.bufferedAmount = 999;
+    }
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(result.current.status).toBe("closed");
+    // Last committed value is whatever was on the socket at send time,
+    // not the post-close mutation we just made.
+    expect(result.current.bufferedAmount).not.toBe(999);
+  });
+
+  it("ignores bufferedAmountPolling intervals <= 0", async () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useWebSocket<string, string>({
+        bufferedAmountPolling: { intervalMs: 0 },
+        url: "ws://localhost:1234"
+      })
+    );
+
+    await act(async () => {});
+    const socket = MockWebSocket.instances[0];
+
+    act(() => {
+      socket?.emitOpen();
+    });
+
+    act(() => {
+      result.current.send("payload");
+    });
+
+    expect(result.current.bufferedAmount).toBe(1);
+
+    if (socket) {
+      socket.bufferedAmount = 0;
+    }
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    // No polling configured, so the drained value never reaches state.
+    expect(result.current.bufferedAmount).toBe(1);
+  });
+
   it("reports unsupported runtime", () => {
     globalThis.WebSocket = undefined as unknown as typeof WebSocket;
 

@@ -720,6 +720,81 @@ export const useWebSocket: UseWebSocketHook = <
     }
   }, [state.status, stopHeartbeat]);
 
+  // `WebSocket.bufferedAmount` does not fire any event when bytes
+  // drain to the network. Without polling, `state.bufferedAmount`
+  // would only refresh when the consumer calls `send(...)`, when a
+  // message arrives, or when the socket transitions to `open`. Opt-in
+  // polling (`bufferedAmountPolling`) gives consumers a real-time view
+  // for backpressure UIs.
+  const rawBufferedAmountPolling = options.bufferedAmountPolling;
+  const bufferedAmountPollingMode: "raf" | number | null = useMemo(() => {
+    if (rawBufferedAmountPolling === undefined || rawBufferedAmountPolling === false) {
+      return null;
+    }
+
+    if (rawBufferedAmountPolling === true) {
+      return 100;
+    }
+
+    if (rawBufferedAmountPolling === "raf") {
+      return "raf";
+    }
+
+    const intervalMs = rawBufferedAmountPolling.intervalMs;
+
+    return Number.isFinite(intervalMs) && intervalMs > 0 ? intervalMs : null;
+  }, [rawBufferedAmountPolling]);
+
+  const pollBufferedAmount = useStableCallback(() => {
+    const socket = socketRef.current;
+
+    if (socket === null) {
+      return;
+    }
+
+    const next = socket.bufferedAmount;
+
+    if (stateRef.current.bufferedAmount === next) {
+      return;
+    }
+
+    commitState((current) => ({
+      ...current,
+      bufferedAmount: next
+    }));
+  });
+
+  useEffect(() => {
+    if (bufferedAmountPollingMode === null) {
+      return;
+    }
+
+    if (state.status !== "open") {
+      return;
+    }
+
+    if (bufferedAmountPollingMode === "raf") {
+      if (typeof requestAnimationFrame !== "function") {
+        return;
+      }
+
+      let frame = requestAnimationFrame(function loop() {
+        pollBufferedAmount();
+        frame = requestAnimationFrame(loop);
+      });
+
+      return () => {
+        cancelAnimationFrame(frame);
+      };
+    }
+
+    const intervalId = setInterval(pollBufferedAmount, bufferedAmountPollingMode);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [bufferedAmountPollingMode, state.status, pollBufferedAmount]);
+
   const status =
     (reconnect.status === "scheduled" || reconnect.status === "running") &&
     state.status !== "open"

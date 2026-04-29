@@ -257,6 +257,21 @@ export function ChatSocket() {
 }
 ```
 
+The native `WebSocket` does not emit any event when buffered bytes drain to the network, so by default `bufferedAmount` only refreshes on `send()`, on incoming messages, and on the `open` transition. Pass `bufferedAmountPolling` to surface the live value for backpressure indicators:
+
+```tsx
+const socket = useWebSocket<IncomingMessage, OutgoingMessage>({
+  url: "ws://localhost:8080",
+  // "raf" reads `bufferedAmount` on every animation frame while open;
+  // use `true` for a 100ms interval, or `{ intervalMs: 50 }` for custom.
+  bufferedAmountPolling: "raf",
+});
+
+// `socket.bufferedAmount` now ticks down as the OS flushes the buffer,
+// even between `send` calls. Identical readings do not trigger React
+// re-renders.
+```
+
 ### `useEventSource`
 
 ```tsx
@@ -400,6 +415,7 @@ export function GatedNotifications() {
 | `protocols`        | `string \| string[]`           | `undefined`                | WebSocket subprotocols             |
 | `connect`          | `boolean`                      | `true`                     | Auto-connect on mount              |
 | `binaryType`       | `BinaryType`                   | `"blob"`                   | Socket binary mode                 |
+| `bufferedAmountPolling` | `false \| true \| "raf" \| { intervalMs: number }` | `false` | Live polling of `WebSocket.bufferedAmount` for backpressure UIs |
 | `parseMessage`     | `(event) => TIncoming`         | raw `event.data`           | Incoming parser                    |
 | `serializeMessage` | `(message) => ...`             | JSON/string passthrough    | Outgoing serializer                |
 | `reconnect`        | `false \| UseReconnectOptions` | enabled                    | Reconnect configuration            |
@@ -420,7 +436,7 @@ export function GatedNotifications() {
 | `lastMessageEvent` | `MessageEvent \| null`       | Last raw message event                                                     |
 | `lastCloseEvent`   | `CloseEvent \| null`         | Last close event                                                           |
 | `lastError`        | `Event \| null`              | Last transport error, or `RealtimeErrorEvent` for parse/heartbeat failures |
-| `bufferedAmount`   | `number`                     | Current socket buffer size                                                 |
+| `bufferedAmount`   | `number`                     | Current socket buffer size (refresh cadence is controlled by `bufferedAmountPolling`) |
 | `reconnectState`   | reconnect snapshot or `null` | Current reconnect data                                                     |
 | `heartbeatState`   | heartbeat snapshot or `null` | Current heartbeat data                                                     |
 | `open`             | `() => void`                 | Manual connect                                                             |
