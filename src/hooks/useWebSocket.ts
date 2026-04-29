@@ -7,6 +7,7 @@ import { resolveUrlProvider } from "../core/url";
 import { useHeartbeat } from "./useHeartbeat";
 import { useReconnect } from "./useReconnect";
 import { useStableCallback } from "./useStableCallback";
+import { useWebSocketController } from "./useWebSocketController";
 import type { UseHeartbeatOptions } from "../types/useHeartbeat";
 import type {
   UseWebSocketHook,
@@ -108,15 +109,7 @@ export const useWebSocket: UseWebSocketHook = <
   const activeSocketEpochRef = useRef<number | null>(null);
   const closingSocketEpochRef = useRef<number | null>(null);
   const nextSocketEpochRef = useRef(0);
-  const manualCloseRef = useRef(false);
-  const manualOpenRef = useRef(false);
-  const skipCloseReconnectRef = useRef(false);
-  const suppressReconnectRef = useRef(false);
-  const pendingCloseActionRef = useRef<{
-    error: Event | null;
-    reconnectTrigger: "heartbeat-timeout" | "error" | null;
-  } | null>(null);
-  const terminalErrorRef = useRef<Event | null>(null);
+  const controller = useWebSocketController();
   const [openNonce, setOpenNonce] = useState(0);
   const [state, setState] = useState<WebSocketState<TIncoming>>(() =>
     createInitialState(connect ? "connecting" : "idle")
@@ -292,11 +285,10 @@ export const useWebSocket: UseWebSocketHook = <
         action === "reconnect" &&
         reconnectEnabled &&
         (options.shouldReconnect?.(error) ?? true);
-      manualOpenRef.current = false;
-      terminalErrorRef.current = shouldReconnect ? null : error;
       const socket = socketRef.current;
 
       if (socket === null || !isSocketActive(socket)) {
+        controller.noteHeartbeatNoActiveSocket({ error, shouldReconnect });
         commitState((current) => ({
           ...current,
           lastChangedAt: Date.now(),
@@ -311,12 +303,10 @@ export const useWebSocket: UseWebSocketHook = <
         return;
       }
 
-      pendingCloseActionRef.current = {
+      controller.noteHeartbeatActiveSocketClose({
         error,
         reconnectTrigger: shouldReconnect ? reconnectTrigger : null
-      };
-      skipCloseReconnectRef.current = true;
-      suppressReconnectRef.current = true;
+      });
       closeSocket({ trackClose: true });
     }
   );
@@ -334,10 +324,7 @@ export const useWebSocket: UseWebSocketHook = <
   });
 
   const handleOpen = useStableCallback((event: Event, socket: WebSocket) => {
-    manualCloseRef.current = false;
-    manualOpenRef.current = false;
-    suppressReconnectRef.current = false;
-    terminalErrorRef.current = null;
+    controller.noteSocketOpened();
     reconnect.markConnected();
     heartbeat.start();
 
@@ -369,10 +356,7 @@ export const useWebSocket: UseWebSocketHook = <
         cause: error,
         kind: "parse-error"
       });
-      terminalErrorRef.current = parseError;
-      manualOpenRef.current = false;
-      skipCloseReconnectRef.current = true;
-      suppressReconnectRef.current = true;
+      controller.noteParseError(parseError);
       reconnect.cancel();
       heartbeat.stop();
       options.onError?.(parseError);
@@ -423,14 +407,12 @@ export const useWebSocket: UseWebSocketHook = <
 
     heartbeat.stop();
     updateBufferedAmount();
-    const pendingCloseAction = pendingCloseActionRef.current;
-    pendingCloseActionRef.current = null;
-    const terminalError = terminalErrorRef.current;
-    const skipCloseReconnect = skipCloseReconnectRef.current;
-    skipCloseReconnectRef.current = false;
+    const pendingCloseAction = controller.consumePendingCloseAction();
+    const terminalError = controller.peekTerminalError();
+    const skipCloseReconnect = controller.consumeSkipNextCloseReconnect();
 
     if (pendingCloseAction !== null) {
-      suppressReconnectRef.current = false;
+      controller.clearReconnectSuppression();
 
       commitState((current) => ({
         ...current,
@@ -451,7 +433,7 @@ export const useWebSocket: UseWebSocketHook = <
     }
 
     if (terminalError !== null) {
-      suppressReconnectRef.current = false;
+      controller.clearReconnectSuppression();
 
       commitState((current) => ({
         ...current,
@@ -466,7 +448,7 @@ export const useWebSocket: UseWebSocketHook = <
     }
 
     const shouldReconnect =
-      !suppressReconnectRef.current &&
+      !controller.isReconnectSuppressed() &&
       !skipCloseReconnect &&
       reconnectEnabled &&
       (options.shouldReconnect?.(event) ?? true);
@@ -483,36 +465,26 @@ export const useWebSocket: UseWebSocketHook = <
     if (shouldReconnect) {
       reconnect.schedule("close");
     } else {
-      suppressReconnectRef.current = false;
+      controller.clearReconnectSuppression();
     }
   });
 
   const open = useStableCallback((): void => {
-    manualCloseRef.current = false;
-    manualOpenRef.current = true;
-    suppressReconnectRef.current = false;
-    terminalErrorRef.current = null;
+    controller.noteUserOpenRequested();
     reconnect.cancel();
     setOpenNonce((current) => current + 1);
   });
 
   const reconnectNow = useStableCallback((): void => {
-    manualCloseRef.current = false;
-    manualOpenRef.current = true;
-    skipCloseReconnectRef.current = true;
-    suppressReconnectRef.current = true;
-    terminalErrorRef.current = null;
+    controller.noteUserReconnectRequested();
     heartbeat.stop();
     closeSocket();
-    suppressReconnectRef.current = false;
+    controller.noteUserReconnectClosed();
     reconnect.schedule("manual");
   });
 
   const close = useStableCallback((code?: number, reason?: string): void => {
-    manualCloseRef.current = true;
-    manualOpenRef.current = false;
-    suppressReconnectRef.current = true;
-    terminalErrorRef.current = null;
+    controller.noteUserCloseRequested();
     reconnect.cancel();
     heartbeat.stop();
 
@@ -563,15 +535,15 @@ export const useWebSocket: UseWebSocketHook = <
     }
 
     const shouldConnect =
-      terminalErrorRef.current === null &&
-      ((connect && !manualCloseRef.current) ||
-      manualOpenRef.current ||
+      controller.peekTerminalError() === null &&
+      ((connect && !controller.hasManualCloseRequested()) ||
+      controller.hasManualOpenRequested() ||
       reconnect.status === "running");
     const nextSocketKey = `${resolvedUrl}::${protocolsDependency}::${options.binaryType ?? "blob"}`;
 
     if (!shouldConnect) {
       if (socketRef.current !== null) {
-        suppressReconnectRef.current = true;
+        controller.noteEffectInitiatedClose();
         closeSocket();
       }
 
@@ -579,9 +551,9 @@ export const useWebSocket: UseWebSocketHook = <
       commitState((current) => ({
         ...current,
         status:
-          terminalErrorRef.current !== null
+          controller.peekTerminalError() !== null
             ? "error"
-            : manualCloseRef.current
+            : controller.hasManualCloseRequested()
               ? "closed"
               : "idle"
       }));
@@ -589,7 +561,7 @@ export const useWebSocket: UseWebSocketHook = <
     }
 
     if (socketRef.current !== null && socketKeyRef.current !== nextSocketKey) {
-      suppressReconnectRef.current = true;
+      controller.noteEffectInitiatedClose();
       closeSocket();
     }
 
@@ -679,6 +651,7 @@ export const useWebSocket: UseWebSocketHook = <
     closeSocket,
     commitState,
     connect,
+    controller,
     handleClose,
     handleError,
     handleMessage,
@@ -694,11 +667,10 @@ export const useWebSocket: UseWebSocketHook = <
   ]);
 
   useEffect(() => () => {
-    suppressReconnectRef.current = true;
+    controller.noteEffectInitiatedClose();
     socketKeyRef.current = null;
     activeSocketEpochRef.current = null;
     closingSocketEpochRef.current = null;
-    terminalErrorRef.current = null;
 
     const socket = socketRef.current;
     socketRef.current = null;
@@ -710,7 +682,7 @@ export const useWebSocket: UseWebSocketHook = <
     if (isSocketActive(socket)) {
       socket.close();
     }
-  }, []);
+  }, [controller]);
 
   const stopHeartbeat = heartbeat.stop;
 
