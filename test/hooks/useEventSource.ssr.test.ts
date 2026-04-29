@@ -14,8 +14,11 @@ import { useEventSource } from "../../src";
 // `typeof EventSource !== "undefined"` for SSR-time decisions.
 
 class MockEventSource {
-  constructor(_url: string, _init?: EventSourceInit) {
-    /* not invoked during SSR */
+  // Constructor body is never invoked during SSR; the hook only checks
+  // `typeof EventSource !== "undefined"`. Args omitted to keep ESLint
+  // (no-unused-vars) happy.
+  constructor() {
+    /* no-op */
   }
 }
 
