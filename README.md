@@ -38,6 +38,7 @@ Real apps need:
 - Discriminated connection snapshots: `idle`, `connecting`, `open`, `reconnecting`, `closing`, `closed`, `error`.
 - First-class TypeScript support with generic message types and custom parsers/serializers.
 - SSR-safe by default. No browser-only globals are touched during server render.
+- Strict Mode safe. Works correctly under React 18+ `<StrictMode>` and Next.js dev double-mount — see [Strict Mode Safety](#strict-mode-safety).
 - Zero runtime dependencies beyond React.
 - Manual controls stay available when you need them: `open()`, `close()`, `reconnect()`, `send()`.
 
@@ -654,6 +655,19 @@ That keeps the gate predictable when multiple blockers apply at once.
 - Manual `close()` is sticky. The hook stays closed until `open()` or `reconnect()` is called.
 - No transport polyfills are bundled. Provide your own runtime support where needed.
 - Browser-native transport constraints still apply: auth, proxy, CORS, and network policy are outside the hook's control.
+
+## Strict Mode Safety
+
+All hooks are safe to use under React 18+ `<React.StrictMode>` and the Next.js App Router's dev mode, both of which intentionally mount → unmount → mount each component on first render to surface effect-cleanup bugs.
+
+Concretely:
+
+- `useWebSocket` and `useEventSource` defer the actual `new WebSocket(...)` / `new EventSource(...)` call by a microtask. If the component unmounts before that microtask runs (the Strict Mode discard mount), no transport is ever created. If the mount survives, exactly one transport is created — never two.
+- All effects in the library tear down their timers, listeners, and transports synchronously in the cleanup function. There is no "zombie" `setInterval`, no orphaned `addEventListener`, no leaked `WebSocket` left in `CONNECTING` after a discarded mount.
+- Latest-state refs are committed via `useInsertionEffect`, not by writing to `ref.current` during render. A discarded render never leaves the ref out of sync with the committed tree.
+- The library's own test suite runs every hook test inside `<React.StrictMode>` by default, so any regression that only shows up under double-mount is caught in CI.
+
+If you observe a Strict Mode regression — e.g. two simultaneous WebSocket connections, an `EventSource` that survives a closed component, or a heartbeat that keeps firing after unmount — please open an issue with a minimal repro. That class of bug is supposed to be impossible by construction, and we treat it as a correctness defect.
 
 ## Testing And Quality
 
