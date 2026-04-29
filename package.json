@@ -53,12 +53,14 @@
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:dist": "vitest run --config vitest.dist.config.ts",
     "test:watch": "vitest",
     "publint": "publint",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",
-    "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build && npm run publint"
+    "prepack": "npm run build && npm run publint",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm run test"
   },
   "peerDependencies": {
     "react": ">=18.0.0 <20.0.0"
