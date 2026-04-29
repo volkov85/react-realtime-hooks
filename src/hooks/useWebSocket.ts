@@ -117,8 +117,14 @@ export const useWebSocket: UseWebSocketHook = <
   const nextSocketEpochRef = useRef(0);
   const controller = useWebSocketController();
   const [openNonce, setOpenNonce] = useState(0);
+  const initialStatus: WebSocketState<TIncoming>["status"] =
+    !supported || resolvedUrl === null
+      ? "closed"
+      : connect
+        ? "connecting"
+        : "idle";
   const [state, setState] = useState<WebSocketState<TIncoming>>(() =>
-    createInitialState(connect ? "connecting" : "idle")
+    createInitialState(initialStatus)
   );
   const stateRef = useRef(state);
   useInsertionEffect(() => {
