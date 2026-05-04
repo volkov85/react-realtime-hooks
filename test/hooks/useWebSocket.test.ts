@@ -382,6 +382,45 @@ describe("useWebSocket", () => {
     expect(result.current.reconnectState?.status).toBe("stopped");
   });
 
+  it("close() called before the deferred allocation does not open a socket", async () => {
+    const { result } = renderHook(() =>
+      useWebSocket({
+        reconnect: false,
+        url: "ws://localhost:1234"
+      })
+    );
+
+    // No microtask flush yet — the socket has not been allocated. The
+    // user calls close() in the same synchronous batch as mount.
+    act(() => {
+      result.current.close();
+    });
+
+    await flushMicrotasks();
+
+    expect(MockWebSocket.instances).toHaveLength(0);
+    expect(result.current.status).toBe("closed");
+  });
+
+  it("close() with connect:false and no socket commits 'closed', not zombie 'closing'", () => {
+    const { result } = renderHook(() =>
+      useWebSocket({
+        connect: false,
+        reconnect: false,
+        url: "ws://localhost:1234"
+      })
+    );
+
+    expect(result.current.status).toBe("idle");
+
+    act(() => {
+      result.current.close();
+    });
+
+    expect(result.current.status).toBe("closed");
+    expect(MockWebSocket.instances).toHaveLength(0);
+  });
+
   it("integrates heartbeat ack state", async () => {
     vi.useFakeTimers();
 

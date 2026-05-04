@@ -545,6 +545,24 @@ describe("useEventSource", () => {
     expect(MockEventSource.instances).toHaveLength(1);
   });
 
+  it("close() called before the deferred allocation does not open a source", async () => {
+    const { result } = renderHook(() =>
+      useEventSource({
+        reconnect: false,
+        url: "http://localhost:3000/sse"
+      })
+    );
+
+    act(() => {
+      result.current.close();
+    });
+
+    await flushMicrotasks();
+
+    expect(MockEventSource.instances).toHaveLength(0);
+    expect(result.current.status).toBe("closed");
+  });
+
   it("opens no source if the component unmounts before the microtask flush", async () => {
     // Mount → unmount in the same synchronous batch is the worst-case
     // timing for any deferred-allocation scheme. The microtask must
