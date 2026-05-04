@@ -3,6 +3,8 @@
 [![npm version](https://img.shields.io/npm/v/react-realtime-hooks?color=0f766e)](https://www.npmjs.com/package/react-realtime-hooks)
 [![Quality Gate](https://img.shields.io/github/actions/workflow/status/volkov85/react-realtime-hooks/quality-gate.yml?branch=main&label=quality%20gate)](https://github.com/volkov85/react-realtime-hooks/actions/workflows/quality-gate.yml)
 [![Demo](https://img.shields.io/github/actions/workflow/status/volkov85/react-realtime-hooks/pages.yml?branch=main&label=demo)](https://github.com/volkov85/react-realtime-hooks/actions/workflows/pages.yml)
+[![bundle size](https://img.shields.io/bundlephobia/minzip/react-realtime-hooks?label=min%20%2B%20gzip&color=0f766e)](https://bundlephobia.com/package/react-realtime-hooks)
+[![dependencies](https://img.shields.io/badge/dependencies-zero-0f766e)](https://github.com/volkov85/react-realtime-hooks/blob/main/package.json)
 [![license](https://img.shields.io/npm/l/react-realtime-hooks)](https://github.com/volkov85/react-realtime-hooks/blob/main/LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-typed-3178c6)](https://www.typescriptlang.org/)
 [![react](https://img.shields.io/badge/react-18%20%7C%2019-149eca)](https://www.npmjs.com/package/react)
