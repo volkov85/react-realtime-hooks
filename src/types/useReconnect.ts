@@ -32,6 +32,11 @@ export type ReconnectDelayStrategy = (
 
 export interface UseReconnectOptions {
   enabled?: boolean;
+  /**
+   * Maximum number of reconnect attempts before the hook gives up and
+   * transitions to `"stopped"`. Default is `10` (changed from `null` in
+   * 2.0). Pass `null` explicitly to retry indefinitely.
+   */
   maxAttempts?: number | null;
   initialDelayMs?: number;
   maxDelayMs?: number;

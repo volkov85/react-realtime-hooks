@@ -22,6 +22,17 @@ describe("reconnect helpers", () => {
     });
   });
 
+  it("defaults maxAttempts to 10", () => {
+    expect(DEFAULT_RECONNECT_OPTIONS.maxAttempts).toBe(10);
+    const normalized = normalizeReconnectOptions();
+    expect(normalized?.maxAttempts).toBe(10);
+  });
+
+  it("treats explicit null maxAttempts as unlimited", () => {
+    const normalized = normalizeReconnectOptions({ maxAttempts: null });
+    expect(normalized?.maxAttempts).toBeNull();
+  });
+
   it("sanitizes reconnect config", () => {
     expect(
       normalizeReconnectOptions({

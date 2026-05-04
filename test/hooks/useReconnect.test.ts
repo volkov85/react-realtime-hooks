@@ -186,6 +186,54 @@ describe("useReconnect", () => {
     expect(result.current.nextDelayMs).toBeNull();
   });
 
+  it("stops after the default 10 attempts", () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useReconnect({
+        initialDelayMs: 0,
+        jitterRatio: 0
+      })
+    );
+
+    for (let i = 0; i < 10; i += 1) {
+      act(() => {
+        result.current.schedule();
+        vi.advanceTimersByTime(0);
+      });
+      expect(result.current.status).toBe("running");
+    }
+
+    act(() => {
+      result.current.schedule();
+    });
+
+    expect(result.current.status).toBe("stopped");
+    expect(result.current.attempt).toBe(10);
+  });
+
+  it("retries indefinitely when maxAttempts is explicitly null", () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() =>
+      useReconnect({
+        initialDelayMs: 0,
+        jitterRatio: 0,
+        maxAttempts: null
+      })
+    );
+
+    for (let i = 0; i < 50; i += 1) {
+      act(() => {
+        result.current.schedule();
+        vi.advanceTimersByTime(0);
+      });
+    }
+
+    expect(result.current.status).toBe("running");
+    expect(result.current.attempt).toBe(50);
+  });
+
   it("stops when maxAttempts is exhausted", () => {
     vi.useFakeTimers();
 

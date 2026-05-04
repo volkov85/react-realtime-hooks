@@ -37,7 +37,7 @@ export const DEFAULT_RECONNECT_OPTIONS: Readonly<
   enabled: true,
   initialDelayMs: 1_000,
   jitterRatio: 0.2,
-  maxAttempts: null,
+  maxAttempts: 10,
   maxDelayMs: 30_000,
   resetOnSuccess: true
 };
@@ -107,7 +107,10 @@ export const normalizeReconnectOptions = (
     jitterRatio: sanitizeJitterRatio(
       options?.jitterRatio ?? DEFAULT_RECONNECT_OPTIONS.jitterRatio
     ),
-    maxAttempts: sanitizeMaxAttempts(options?.maxAttempts),
+    maxAttempts:
+      options?.maxAttempts === undefined
+        ? DEFAULT_RECONNECT_OPTIONS.maxAttempts
+        : sanitizeMaxAttempts(options.maxAttempts),
     maxDelayMs,
     resetOnSuccess: options?.resetOnSuccess ?? DEFAULT_RECONNECT_OPTIONS.resetOnSuccess
   };

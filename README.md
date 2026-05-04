@@ -88,7 +88,6 @@ export function NotificationsPanel() {
     parseMessage: (event) => JSON.parse(String(event.data)) as IncomingMessage,
     reconnect: {
       initialDelayMs: 1_000,
-      maxAttempts: null,
     },
     heartbeat: {
       intervalMs: 10_000,
@@ -239,7 +238,6 @@ export function ChatSocket() {
     parseMessage: (event) => JSON.parse(String(event.data)) as IncomingMessage,
     reconnect: {
       initialDelayMs: 1_000,
-      maxAttempts: null,
     },
     heartbeat: {
       intervalMs: 10_000,
@@ -393,6 +391,8 @@ export function GatedNotifications() {
       initialDelayMs: 1_000,
       maxAttempts: null,
     },
+    // ^ pass `null` explicitly to opt back into unlimited reconnect attempts;
+    // the default in 2.0 caps retries at 10.
     url: "ws://localhost:8080/notifications",
   });
 
@@ -508,7 +508,7 @@ retry loop.
 | `maxDelayMs`     | `number`                 | `30000`     | Delay cap                            |
 | `backoffFactor`  | `number`                 | `2`         | Exponential multiplier               |
 | `jitterRatio`    | `number`                 | `0.2`       | Randomized variance ratio            |
-| `maxAttempts`    | `number \| null`         | `null`      | Max attempts, `null` means unlimited |
+| `maxAttempts`    | `number \| null`         | `10`        | Max attempts before `"stopped"`; pass `null` for unlimited |
 | `getDelayMs`     | `ReconnectDelayStrategy` | `undefined` | Custom delay strategy                |
 | `resetOnSuccess` | `boolean`                | `true`      | Resets attempt count after success   |
 | `onSchedule`     | `(attempt) => void`      | `undefined` | Called when an attempt is scheduled  |
@@ -540,7 +540,7 @@ retry loop.
 | -------------- | --------------------------------------------------- | ----------- | ------------------------------------------- |
 | `enabled`      | `boolean`                                           | `true`      | Enables the heartbeat loop                  |
 | `intervalMs`   | `number`                                            | Required    | Beat interval                               |
-| `timeoutMs`    | `number`                                            | `undefined` | Timeout before `hasTimedOut` becomes `true` |
+| `timeoutMs`    | `number \| null`                                    | `10_000`    | Timeout in ms before `hasTimedOut` becomes `true`; pass `null` to disable |
 | `message`      | `TOutgoing \| (() => TOutgoing)`                    | `undefined` | Optional heartbeat payload                  |
 | `beat`         | `() => void \| boolean \| Promise<void \| boolean>` | `undefined` | Custom beat side effect                     |
 | `matchesAck`   | `(message) => boolean`                              | `undefined` | Ack matcher                                 |
@@ -693,6 +693,12 @@ Run the local playground:
 ```bash
 npm run demo
 ```
+
+## Migrating from 1.x
+
+Two defaults change in 2.0 (`reconnect.maxAttempts` → `10`,
+`heartbeat.timeoutMs` → `10_000`). See [MIGRATING.md](./MIGRATING.md) for the
+exact diff and how to restore 1.x behaviour.
 
 ## Contributing
 
