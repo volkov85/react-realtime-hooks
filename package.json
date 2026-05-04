@@ -59,7 +59,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",
-    "prepack": "npm run build && npm run publint",
+    "prepack": "npm run build && npm run test:dist && npm run publint",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run test"
   },
   "peerDependencies": {

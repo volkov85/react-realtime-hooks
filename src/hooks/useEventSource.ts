@@ -367,6 +367,19 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
         return;
       }
 
+      // The user can call `close()` between the synchronous effect body
+      // and this microtask. `close()` flips `manualCloseRef.current`;
+      // honour it here so the deferred allocation does not resurrect a
+      // transport the user already asked to close.
+      if (manualCloseRef.current) {
+        commitState((current) => ({
+          ...current,
+          lastChangedAt: Date.now(),
+          status: "closed"
+        }));
+        return;
+      }
+
       const source = new EventSource(resolvedUrl, {
         withCredentials: options.withCredentials ?? false
       });

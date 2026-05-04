@@ -502,10 +502,21 @@ export const useWebSocket: UseWebSocketHook = <
     reconnect.cancel();
     heartbeat.stop();
 
+    // Only show `"closing"` while a real socket transition is in flight.
+    // If there is no native socket yet (e.g. the user called `close()`
+    // before the deferred `new WebSocket(...)` ran, or the hook is in
+    // `idle`/`closed`), commit `"closed"` directly so the status snapshot
+    // never claims a transition that nothing is performing.
+    const socket = socketRef.current;
+    const hasInFlightSocket =
+      socket !== null &&
+      (socket.readyState === WebSocket.CONNECTING ||
+        socket.readyState === WebSocket.OPEN);
+
     commitState((current) => ({
       ...current,
       lastChangedAt: Date.now(),
-      status: "closing"
+      status: hasInFlightSocket ? "closing" : "closed"
     }));
 
     closeSocket({
@@ -606,6 +617,19 @@ export const useWebSocket: UseWebSocketHook = <
 
     queueMicrotask(() => {
       if (cancelled) {
+        return;
+      }
+
+      // The user can call `close()` between the synchronous effect body
+      // and this microtask. `close()` flips `manualClose` on the
+      // controller; honour it here so the deferred allocation does not
+      // resurrect a transport the user already asked to close.
+      if (controller.hasManualCloseRequested()) {
+        commitState((current) => ({
+          ...current,
+          lastChangedAt: Date.now(),
+          status: "closed"
+        }));
         return;
       }
 
