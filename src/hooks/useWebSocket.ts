@@ -180,7 +180,7 @@ export const useWebSocket: UseWebSocketHook = <
         };
 
   if (heartbeatConfig !== null && heartbeatConfig.timeoutMs !== undefined) {
-    heartbeatHookOptions.timeoutMs = heartbeatConfig.timeoutMs;
+    heartbeatHookOptions.timeoutMs = heartbeatConfig.timeoutMs ?? null;
   }
 
   if (heartbeatConfig !== null && heartbeatConfig.matchesAck !== undefined) {

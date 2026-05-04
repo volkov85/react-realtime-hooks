@@ -5,7 +5,12 @@ export type HeartbeatAckMatcher<TMessage> = (message: TMessage) => boolean;
 export interface UseHeartbeatOptions<TOutgoing = unknown, TIncoming = TOutgoing> {
   enabled?: boolean;
   intervalMs: number;
-  timeoutMs?: number;
+  /**
+   * Time to wait for an ack after a beat before flipping `hasTimedOut` to
+   * `true`. Default is `10_000` (10 seconds), changed from no default in
+   * 2.0. Pass `null` explicitly to disable the timeout entirely.
+   */
+  timeoutMs?: number | null;
   message?: TOutgoing | (() => TOutgoing);
   beat?: HeartbeatBeatFn;
   matchesAck?: HeartbeatAckMatcher<TIncoming>;

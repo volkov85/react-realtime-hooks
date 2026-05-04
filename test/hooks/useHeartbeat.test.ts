@@ -270,4 +270,61 @@ describe("useHeartbeat", () => {
     expect(result.current.lastAckAt).toBeNull();
     expect(result.current.latencyMs).toBeNull();
   });
+
+  it("times out after the default 10s when timeoutMs is not set", () => {
+    vi.useFakeTimers();
+
+    const onTimeout = vi.fn();
+    const { result } = renderHook(() =>
+      useHeartbeat({
+        intervalMs: 60_000,
+        onTimeout,
+        startOnMount: false
+      })
+    );
+
+    act(() => {
+      result.current.start();
+      result.current.beat();
+    });
+
+    expect(result.current.hasTimedOut).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(9_999);
+    });
+
+    expect(result.current.hasTimedOut).toBe(false);
+    expect(onTimeout).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(result.current.hasTimedOut).toBe(true);
+    expect(onTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables timeout when timeoutMs is null", () => {
+    vi.useFakeTimers();
+
+    const onTimeout = vi.fn();
+    const { result } = renderHook(() =>
+      useHeartbeat({
+        intervalMs: 60_000,
+        onTimeout,
+        startOnMount: false,
+        timeoutMs: null
+      })
+    );
+
+    act(() => {
+      result.current.start();
+      result.current.beat();
+      vi.advanceTimersByTime(60_000);
+    });
+
+    expect(result.current.hasTimedOut).toBe(false);
+    expect(onTimeout).not.toHaveBeenCalled();
+  });
 });

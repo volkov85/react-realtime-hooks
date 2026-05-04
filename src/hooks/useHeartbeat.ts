@@ -16,6 +16,13 @@ type HeartbeatState = Pick<
   "hasTimedOut" | "isRunning" | "lastAckAt" | "lastBeatAt" | "latencyMs"
 >;
 
+/**
+ * Default ack timeout in milliseconds. Picked so the hook surfaces a stalled
+ * connection without spamming `onTimeout` during transient lag. Set
+ * `timeoutMs: null` on a hook to opt out of timeouts entirely.
+ */
+export const DEFAULT_HEARTBEAT_TIMEOUT_MS = 10_000;
+
 const createInitialState = (isRunning: boolean): HeartbeatState => ({
   hasTimedOut: false,
   isRunning,
@@ -65,14 +72,17 @@ export const useHeartbeat = <
   });
 
   const scheduleTimeout = useStableCallback(() => {
-    if (options.timeoutMs === undefined) {
+    const timeoutMs =
+      options.timeoutMs === undefined ? DEFAULT_HEARTBEAT_TIMEOUT_MS : options.timeoutMs;
+
+    if (timeoutMs === null) {
       timeoutRef.current.cancel();
       return;
     }
 
     timeoutRef.current.schedule(() => {
       handleTimeout();
-    }, options.timeoutMs);
+    }, timeoutMs);
   });
 
   const handleBeatSuccess = useStableCallback((performedAt: number) => {
