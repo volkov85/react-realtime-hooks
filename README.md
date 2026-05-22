@@ -8,6 +8,7 @@
 [![license](https://img.shields.io/npm/l/react-realtime-hooks)](https://github.com/volkov85/react-realtime-hooks/blob/main/LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-typed-3178c6)](https://www.typescriptlang.org/)
 [![react](https://img.shields.io/badge/react-18%20%7C%2019-149eca)](https://www.npmjs.com/package/react)
+[![React Doctor](https://www.react.doctor/share/badge?p=react-realtime-hooks&s=94&e=2&w=28&f=21)](https://www.react.doctor/share?p=react-realtime-hooks&s=94&e=2&w=28&f=21)
 
 Production-ready React hooks for WebSocket and SSE with auto-reconnect, heartbeat, typed connection state, and browser network awareness including page visibility and connection gating.
 
