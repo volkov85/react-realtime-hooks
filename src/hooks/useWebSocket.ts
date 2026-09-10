@@ -111,6 +111,7 @@ export const useWebSocket: UseWebSocketHook = <
   );
 
   const socketRef = useRef<WebSocket | null>(null);
+  const detachSocketListenersRef = useRef<(() => void) | null>(null);
   const socketKeyRef = useRef<string | null>(null);
   const activeSocketEpochRef = useRef<number | null>(null);
   const closingSocketEpochRef = useRef<number | null>(null);
@@ -271,6 +272,11 @@ export const useWebSocket: UseWebSocketHook = <
       activeSocketEpochRef.current = null;
       closingSocketEpochRef.current = config.trackClose ? socketEpoch : null;
 
+      if (!config.trackClose) {
+        detachSocketListenersRef.current?.();
+        detachSocketListenersRef.current = null;
+      }
+
       if (isSocketActive(socket)) {
         socket.close(config.code, config.reason);
       }
@@ -408,6 +414,9 @@ export const useWebSocket: UseWebSocketHook = <
     if (!shouldHandleSocketClose(socketEpoch)) {
       return;
     }
+
+    detachSocketListenersRef.current?.();
+    detachSocketListenersRef.current = null;
 
     if (activeSocketEpochRef.current === socketEpoch) {
       socketRef.current = null;
@@ -613,7 +622,6 @@ export const useWebSocket: UseWebSocketHook = <
     // discarded mount never opens a real socket. After the microtask
     // queue flushes, only the surviving mount instantiates the socket.
     let cancelled = false;
-    let detachListeners: (() => void) | null = null;
 
     queueMicrotask(() => {
       if (cancelled) {
@@ -634,6 +642,10 @@ export const useWebSocket: UseWebSocketHook = <
       }
 
       const socket = new WebSocket(resolvedUrl, protocols);
+      // A tracked close may still be pending when a replacement is opened.
+      // Its events are obsolete once the new socket takes ownership.
+      detachSocketListenersRef.current?.();
+      detachSocketListenersRef.current = null;
       const socketEpoch = nextSocketEpochRef.current + 1;
       socketRef.current = socket;
       socketKeyRef.current = nextSocketKey;
@@ -673,7 +685,7 @@ export const useWebSocket: UseWebSocketHook = <
       socket.addEventListener("error", handleSocketError);
       socket.addEventListener("close", handleSocketClose);
 
-      detachListeners = () => {
+      detachSocketListenersRef.current = () => {
         socket.removeEventListener("open", handleSocketOpen);
         socket.removeEventListener("message", handleSocketMessage);
         socket.removeEventListener("error", handleSocketError);
@@ -682,8 +694,9 @@ export const useWebSocket: UseWebSocketHook = <
     });
 
     return () => {
+      // Listeners belong to the socket, which can survive this effect
+      // rerunning when reconnect.status changes.
       cancelled = true;
-      detachListeners?.();
     };
   }, [
     closeSocket,
@@ -705,6 +718,8 @@ export const useWebSocket: UseWebSocketHook = <
   ]);
 
   useEffect(() => () => {
+    detachSocketListenersRef.current?.();
+    detachSocketListenersRef.current = null;
     controller.noteEffectInitiatedClose();
     socketKeyRef.current = null;
     activeSocketEpochRef.current = null;

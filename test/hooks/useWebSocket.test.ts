@@ -281,6 +281,122 @@ describe("useWebSocket", () => {
     expect(result.current.status).toBe("reconnecting");
   });
 
+  it.each(["automatic", "manual"] as const)(
+    "keeps listeners through repeated %s reconnects and cleans up each socket",
+    async (mode) => {
+      vi.useFakeTimers();
+      const onMessage = vi.fn();
+      const onError = vi.fn();
+      const { result, unmount } = renderHook(() =>
+        useWebSocket<string>({
+          onError,
+          onMessage,
+          reconnect: { initialDelayMs: 50, jitterRatio: 0 },
+          url: "ws://localhost:1234"
+        })
+      );
+
+      await flushMicrotasks();
+      let socket = MockWebSocket.instances[0]!;
+      act(() => socket.emitOpen());
+
+      for (let cycle = 1; cycle <= 2; cycle += 1) {
+        const previousSocket = socket;
+        act(() => {
+          if (mode === "manual") {
+            result.current.reconnect();
+          } else {
+            previousSocket.emitClose();
+          }
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        socket = MockWebSocket.instances.at(-1)!;
+        expect(socket).not.toBe(previousSocket);
+
+        act(() => socket.emitOpen());
+        expect(result.current.status).toBe("open");
+        expect(result.current.reconnectState?.status).toBe("idle");
+        for (const type of ["open", "message", "error", "close"]) {
+          expect(previousSocket.listenerCount(type)).toBe(0);
+          expect(socket.listenerCount(type)).toBe(1);
+        }
+
+        act(() => socket.emitMessage(`message ${cycle}`));
+        expect(result.current.lastMessage).toBe(`message ${cycle}`);
+        expect(onMessage).toHaveBeenCalledTimes(cycle);
+        act(() => socket.emitError());
+        expect(onError).toHaveBeenCalledTimes(cycle);
+      }
+
+      unmount();
+      for (const type of ["open", "message", "error", "close"]) {
+        expect(socket.listenerCount(type)).toBe(0);
+      }
+    }
+  );
+
+  it("handles asynchronous manual close before detaching listeners", async () => {
+    const onClose = vi.fn();
+    const { result, unmount } = renderHook(() =>
+      useWebSocket({ onClose, url: "ws://localhost:1234" })
+    );
+    await flushMicrotasks();
+    const socket = MockWebSocket.instances[0]!;
+    act(() => socket.emitOpen());
+    vi.spyOn(socket, "close").mockImplementation(() => {
+      socket.readyState = MockWebSocket.CLOSING;
+    });
+
+    act(() => result.current.close());
+    expect(socket.listenerCount("close")).toBe(1);
+    act(() => socket.emitClose(1000));
+    expect(result.current.status).toBe("closed");
+    expect(onClose).toHaveBeenCalledTimes(1);
+    for (const type of ["open", "message", "error", "close"]) {
+      expect(socket.listenerCount(type)).toBe(0);
+    }
+    unmount();
+  });
+
+  it.each(["unmount", "replacement"] as const)(
+    "cleans up a pending close on %s and ignores its late event",
+    async (action) => {
+      const onClose = vi.fn();
+      const { result, unmount } = renderHook(() =>
+        useWebSocket({ onClose, url: "ws://localhost:1234" })
+      );
+      await flushMicrotasks();
+      const socket = MockWebSocket.instances[0]!;
+      act(() => socket.emitOpen());
+      vi.spyOn(socket, "close").mockImplementation(() => {
+        socket.readyState = MockWebSocket.CLOSING;
+      });
+      act(() => result.current.close());
+
+      if (action === "unmount") {
+        unmount();
+      } else {
+        act(() => result.current.open());
+        await flushMicrotasks();
+        const replacement = MockWebSocket.instances[1]!;
+        act(() => replacement.emitOpen());
+        expect(replacement.listenerCount("close")).toBe(1);
+      }
+
+      for (const type of ["open", "message", "error", "close"]) {
+        expect(socket.listenerCount(type)).toBe(0);
+      }
+      act(() => socket.emitClose(1000));
+      expect(onClose).not.toHaveBeenCalled();
+      if (action === "replacement") {
+        expect(result.current.status).toBe("open");
+        unmount();
+      }
+    }
+  );
+
   it("supports manual reconnect", async () => {
     vi.useFakeTimers();
 

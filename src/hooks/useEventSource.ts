@@ -73,6 +73,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
   );
 
   const eventSourceRef = useRef<EventSource | null>(null);
+  const detachEventSourceListenersRef = useRef<(() => void) | null>(null);
   const eventSourceKeyRef = useRef<string | null>(null);
   const activeEventSourceEpochRef = useRef<number | null>(null);
   const nextEventSourceEpochRef = useRef(0);
@@ -127,6 +128,8 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     eventSourceRef.current = null;
     eventSourceKeyRef.current = null;
     activeEventSourceEpochRef.current = null;
+    detachEventSourceListenersRef.current?.();
+    detachEventSourceListenersRef.current = null;
     source.close();
   });
 
@@ -360,7 +363,6 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     // discarded mount never opens a real source. After the microtask
     // queue flushes, only the surviving mount instantiates the source.
     let cancelled = false;
-    let detachListeners: (() => void) | null = null;
 
     queueMicrotask(() => {
       if (cancelled) {
@@ -430,7 +432,7 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
 
       source.addEventListener("error", handleSourceError);
 
-      detachListeners = () => {
+      detachEventSourceListenersRef.current = () => {
         source.removeEventListener("open", handleSourceOpen);
         source.removeEventListener("message", handleSourceMessage);
 
@@ -443,8 +445,9 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
     });
 
     return () => {
+      // Listeners belong to the source, which can survive this effect
+      // rerunning when reconnect.status changes.
       cancelled = true;
-      detachListeners?.();
     };
   }, [
     closeEventSource,
@@ -464,6 +467,8 @@ export const useEventSource: UseEventSourceHook = <TMessage = unknown>(
   ]);
 
   useEffect(() => () => {
+    detachEventSourceListenersRef.current?.();
+    detachEventSourceListenersRef.current = null;
     suppressReconnectRef.current = true;
     eventSourceKeyRef.current = null;
     activeEventSourceEpochRef.current = null;
