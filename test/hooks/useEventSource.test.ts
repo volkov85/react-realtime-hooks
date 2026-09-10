@@ -321,6 +321,70 @@ describe("useEventSource", () => {
     expect(result.current.status).toBe("reconnecting");
   });
 
+  it.each(["automatic", "manual"] as const)(
+    "keeps message and named-event listeners through repeated %s reconnects",
+    async (mode) => {
+      vi.useFakeTimers();
+      const onMessage = vi.fn();
+      const onEvent = vi.fn();
+      const onError = vi.fn();
+      const { result, unmount } = renderHook(() =>
+        useEventSource<string>({
+          events: ["notice"],
+          onError,
+          onEvent,
+          onMessage,
+          reconnect: { initialDelayMs: 50, jitterRatio: 0 },
+          url: "http://localhost:3000/sse"
+        })
+      );
+
+      await flushMicrotasks();
+      let source = MockEventSource.instances[0]!;
+      act(() => source.emitOpen());
+
+      for (let cycle = 1; cycle <= 2; cycle += 1) {
+        const previousSource = source;
+        act(() => {
+          if (mode === "manual") {
+            result.current.reconnect();
+          } else {
+            previousSource.emitError();
+          }
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        source = MockEventSource.instances.at(-1)!;
+        expect(source).not.toBe(previousSource);
+
+        act(() => source.emitOpen());
+        expect(result.current.status).toBe("open");
+        expect(result.current.reconnectState?.status).toBe("idle");
+        for (const type of ["open", "message", "notice", "error"]) {
+          expect(previousSource.listenerCount(type)).toBe(0);
+          expect(source.listenerCount(type)).toBe(1);
+        }
+
+        act(() => source.emitMessage(`message ${cycle}`));
+        expect(result.current.lastMessage).toBe(`message ${cycle}`);
+        expect(onMessage).toHaveBeenCalledTimes(cycle);
+        act(() => source.emitMessage(`notice ${cycle}`, "notice"));
+        expect(result.current.lastEventName).toBe("notice");
+        expect(onEvent).toHaveBeenLastCalledWith(
+          "notice", `notice ${cycle}`, expect.any(MessageEvent)
+        );
+        expect(onEvent).toHaveBeenCalledTimes(cycle);
+      }
+
+      expect(onError).toHaveBeenCalledTimes(mode === "automatic" ? 2 : 0);
+      unmount();
+      for (const type of ["open", "message", "notice", "error"]) {
+        expect(source.listenerCount(type)).toBe(0);
+      }
+    }
+  );
+
   it("supports manual reconnect", async () => {
     vi.useFakeTimers();
 
