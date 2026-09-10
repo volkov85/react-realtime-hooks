@@ -1,5 +1,11 @@
 # react-realtime-hooks
 
+## 2.0.3
+
+### Patch Changes
+
+- 81b2c50: Fix WebSocket and EventSource listeners being removed after reconnects, preventing restored connections from receiving messages and transport events. Preserve listeners across reconnect state changes and clean them up when transports close, are replaced, or hooks unmount.
+
 ## 2.0.2
 
 ### Patch Changes
